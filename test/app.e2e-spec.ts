@@ -78,7 +78,7 @@ describe('AppModule e2e (I3)', () => {
   });
 
   it('protected route without token returns 401 (default-deny)', async () => {
-    const res = await request(app.getHttpServer()).get('/premium-echo');
+    const res = await request(app.getHttpServer()).get('/roles');
     expect(res.status).toBe(401);
   });
 });
