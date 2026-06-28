@@ -85,6 +85,7 @@ describe('AuthService', () => {
           sub: mockUser.id,
           email: mockUser.email,
           roleId: mockUser.roleId,
+          tokenType: 'access',
         }),
         expect.objectContaining({ algorithm: 'RS256' }),
       );

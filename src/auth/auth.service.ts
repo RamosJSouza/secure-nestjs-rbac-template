@@ -171,11 +171,15 @@ export class AuthService {
       throw new UnauthorizedException('Refresh token required');
     }
 
-    let payload: { sub: string; email: string; roleId?: string; exp: number };
+    let payload: { sub: string; email: string; roleId?: string; tokenType: 'access' | 'refresh'; exp: number };
     try {
       payload = this.jwtService.verify(token, { algorithms: ['RS256'] });
     } catch {
       throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+
+    if (payload.tokenType !== 'refresh') {
+      throw new UnauthorizedException('Not a refresh token');
     }
 
     const tokenHash = this.hashRefreshToken(token);
@@ -217,15 +221,21 @@ export class AuthService {
   ): Promise<{ email: string; access_token: string; refresh_token: string }> {
     const payload = { sub: user.id, email: user.email, roleId: user.roleId };
 
-    const accessToken = this.jwtService.sign(payload, {
-      expiresIn: ACCESS_TOKEN_EXPIRES,
-      algorithm: 'RS256',
-    });
+    const accessToken = this.jwtService.sign(
+      { ...payload, tokenType: 'access' },
+      {
+        expiresIn: ACCESS_TOKEN_EXPIRES,
+        algorithm: 'RS256',
+      },
+    );
 
-    const refreshToken = this.jwtService.sign(payload, {
-      expiresIn: REFRESH_TOKEN_EXPIRES,
-      algorithm: 'RS256',
-    });
+    const refreshToken = this.jwtService.sign(
+      { ...payload, tokenType: 'refresh' },
+      {
+        expiresIn: REFRESH_TOKEN_EXPIRES,
+        algorithm: 'RS256',
+      },
+    );
 
     const refreshTokenHash = this.hashRefreshToken(refreshToken);
     const expiresAt = new Date();
@@ -258,15 +268,21 @@ export class AuthService {
 
     const payload = { sub: user.id, email: user.email, roleId: user.roleId };
 
-    const accessToken = this.jwtService.sign(payload, {
-      expiresIn: ACCESS_TOKEN_EXPIRES,
-      algorithm: 'RS256',
-    });
+    const accessToken = this.jwtService.sign(
+      { ...payload, tokenType: 'access' },
+      {
+        expiresIn: ACCESS_TOKEN_EXPIRES,
+        algorithm: 'RS256',
+      },
+    );
 
-    const refreshToken = this.jwtService.sign(payload, {
-      expiresIn: REFRESH_TOKEN_EXPIRES,
-      algorithm: 'RS256',
-    });
+    const refreshToken = this.jwtService.sign(
+      { ...payload, tokenType: 'refresh' },
+      {
+        expiresIn: REFRESH_TOKEN_EXPIRES,
+        algorithm: 'RS256',
+      },
+    );
 
     const refreshTokenHash = this.hashRefreshToken(refreshToken);
     const expiresAt = new Date();
