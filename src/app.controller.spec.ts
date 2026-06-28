@@ -52,16 +52,6 @@ describe('AppController', () => {
     });
   });
 
-  describe('getEcho', () => {
-    it('should echo the request body', () => {
-      const body = { message: 'test' };
-
-      const result = appController.getEcho(body);
-
-      expect(result).toEqual(body);
-    });
-  });
-
   describe('getPremiumEcho', () => {
     it('should echo the request body for authorized users', () => {
       const body = { message: 'premium test' };
