@@ -20,7 +20,7 @@
     "schema:sync": "yarn typeorm schema:sync -d src/config/database.ts",
     "schema:drop": "yarn typeorm schema:drop -d src/config/database.ts",
     "seed:rbac": "ts-node -r tsconfig-paths/register src/migrations/seeds/run-seed.ts",
-    "test": "jest --config test/jest.json",
+    "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
