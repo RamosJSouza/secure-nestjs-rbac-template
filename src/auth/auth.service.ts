@@ -207,6 +207,12 @@ export class AuthService {
     }
 
     const user = session.user;
+    const lockNow = new Date();
+    if (user.lockedUntil && user.lockedUntil > lockNow) {
+      throw new UnauthorizedException(
+        `Account locked due to too many failed attempts. Try again after ${user.lockedUntil.toISOString()}`,
+      );
+    }
     if (!user.isActive) {
       throw new UnauthorizedException('User account is deactivated');
     }

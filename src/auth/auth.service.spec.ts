@@ -162,4 +162,35 @@ describe('AuthService', () => {
       ).rejects.toThrow(ConflictException);
     });
   });
+
+  describe('refresh', () => {
+    it('throws UnauthorizedException when the user account is locked', async () => {
+      const lockedUser = {
+        id: 'u1',
+        email: 't@x.com',
+        roleId: 'r',
+        isActive: true,
+        lockedUntil: new Date(Date.now() + 15 * 60 * 1000),
+      };
+      mockJwtService.verify.mockReturnValue({
+        sub: 'u1',
+        email: 't@x.com',
+        tokenType: 'refresh',
+        exp: Math.floor(Date.now() / 1000) + 3600,
+      });
+      sessionRepo.findOne.mockResolvedValue({
+        id: 's1',
+        userId: 'u1',
+        refreshTokenHash: 'hash',
+        revokedAt: null,
+        expiresAt: new Date(Date.now() + 60000),
+        user: lockedUser,
+      });
+      jest.spyOn(service as any, 'hashRefreshToken').mockReturnValue('hash');
+      jest.spyOn(service as any, 'constantTimeCompare').mockReturnValue(true);
+      await expect(service.refresh({ refresh_token: 't' })).rejects.toThrow(
+        'Account locked due to too many failed attempts',
+      );
+    });
+  });
 });
