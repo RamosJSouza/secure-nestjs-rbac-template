@@ -58,7 +58,6 @@ export class FeatureService {
         const feature = await this.featureRepository.findOne({
             where: { id },
             relations: ['permissions'],
-            cache: 60000
         });
 
         if (!feature) {

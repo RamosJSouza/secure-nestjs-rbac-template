@@ -32,7 +32,6 @@ export class PermissionService {
             where: { featureId },
             relations: ['feature'],
             order: { action: 'ASC' },
-            cache: 300000
         });
     }
 

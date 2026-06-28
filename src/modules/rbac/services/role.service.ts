@@ -55,7 +55,6 @@ export class RoleService {
         return this.roleRepository.find({
             relations: ['rolePermissions', 'rolePermissions.permission', 'rolePermissions.permission.feature'],
             order: { name: 'ASC' },
-            cache: true
         });
     }
 
