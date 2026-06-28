@@ -97,6 +97,20 @@ describe('AuthService', () => {
       ).rejects.toThrow(UnauthorizedException);
     });
 
+    it('should throw UnauthorizedException for inactive user', async () => {
+      // login checks isActive before compareSync/lockedUntil, so no bcrypt mock needed
+      mockUsersService.findOne.mockResolvedValue({
+        id: 'uuid',
+        email: 'test@example.com',
+        password: 'hashedpassword',
+        name: 'Test User',
+        isActive: false,
+      });
+      await expect(
+        service.login({ email: 'test@example.com', password: 'password123' }),
+      ).rejects.toThrow(UnauthorizedException);
+    });
+
     it('should throw UnauthorizedException for invalid password', async () => {
       const mockUser = {
         id: 'u',
@@ -138,6 +152,11 @@ describe('AuthService', () => {
 
       expect(result.message).toBe('User created with success');
       expect(result.userId).toBe('new-uuid');
+      expect(mockUsersService.create).toHaveBeenCalledWith({
+        email: registerDto.email,
+        name: registerDto.name,
+        password: 'hashed',
+      });
     });
 
     it('should throw ConflictException for existing user', async () => {
