@@ -27,15 +27,17 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     email: string;
     roleId?: string;
     tokenType: 'access' | 'refresh';
-    jti: string;
+    jti?: string;
   }) {
     if (payload.tokenType !== 'access') {
       throw new UnauthorizedException('Wrong token type');
     }
 
-    const denied = await this.cacheManager.get(`jti:${payload.jti}`);
-    if (denied) {
-      throw new UnauthorizedException('Token has been revoked');
+    if (payload.jti) {
+      const denied = await this.cacheManager.get(`jti:${payload.jti}`);
+      if (denied) {
+        throw new UnauthorizedException('Token has been revoked');
+      }
     }
 
     const user = await this.usersService.findOne(payload.email);

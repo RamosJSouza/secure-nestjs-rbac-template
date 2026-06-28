@@ -385,12 +385,14 @@ export class AuthService {
     return { userId };
   }
 
-  async logout(_userId: string, accessJti: string, refreshToken?: string): Promise<void> {
-    await this.cacheManager.set(`jti:${accessJti}`, 1, ACCESS_TOKEN_EXPIRES_MS);
+  async logout(userId: string, accessJti: string, refreshToken?: string): Promise<void> {
+    if (accessJti) {
+      await this.cacheManager.set(`jti:${accessJti}`, 1, ACCESS_TOKEN_EXPIRES_MS);
+    }
     if (refreshToken) {
       const tokenHash = this.hashRefreshToken(refreshToken);
       const session = await this.sessionRepository.findOne({ where: { refreshTokenHash: tokenHash } });
-      if (session && !session.revokedAt) {
+      if (session && !session.revokedAt && session.userId === userId) {
         session.revokedAt = new Date();
         await this.sessionRepository.save(session);
       }
@@ -398,7 +400,9 @@ export class AuthService {
   }
 
   async logoutAll(userId: string, accessJti: string): Promise<void> {
-    await this.cacheManager.set(`jti:${accessJti}`, 1, ACCESS_TOKEN_EXPIRES_MS);
+    if (accessJti) {
+      await this.cacheManager.set(`jti:${accessJti}`, 1, ACCESS_TOKEN_EXPIRES_MS);
+    }
     await this.sessionRepository
       .createQueryBuilder()
       .update(Session)

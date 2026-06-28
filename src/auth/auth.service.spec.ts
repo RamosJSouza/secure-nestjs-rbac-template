@@ -229,5 +229,29 @@ describe('AuthService', () => {
       expect(setSpy).toHaveBeenCalledWith('jti:access-jti-1', expect.anything(), expect.any(Number));
       expect(executeMock).toHaveBeenCalled();
     });
+
+    it('does not revoke a session that belongs to a different user', async () => {
+      const setSpy = jest.fn().mockResolvedValue(undefined);
+      (service as any).cacheManager = { set: setSpy, get: jest.fn().mockResolvedValue(undefined) };
+      sessionRepo.findOne.mockResolvedValue({ id: 's1', userId: 'other-user', refreshTokenHash: 'h', revokedAt: null });
+      sessionRepo.save = jest.fn().mockResolvedValue(undefined);
+
+      await service.logout('u1', 'access-jti-1', 'refresh-token-1');
+
+      expect(setSpy).toHaveBeenCalledWith('jti:access-jti-1', expect.anything(), expect.any(Number));
+      expect(sessionRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('does not write a jti:undefined key when accessJti is missing (rolling-deploy safety)', async () => {
+      const setSpy = jest.fn().mockResolvedValue(undefined);
+      (service as any).cacheManager = { set: setSpy, get: jest.fn().mockResolvedValue(undefined) };
+      sessionRepo.findOne.mockResolvedValue({ id: 's1', userId: 'u1', refreshTokenHash: 'h', revokedAt: null });
+      sessionRepo.save = jest.fn().mockResolvedValue(undefined);
+
+      await service.logout('u1', undefined as unknown as string, 'refresh-token-1');
+
+      expect(setSpy).not.toHaveBeenCalled();
+      expect(sessionRepo.save).toHaveBeenCalledWith(expect.objectContaining({ id: 's1', revokedAt: expect.any(Date) }));
+    });
   });
 });
