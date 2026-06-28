@@ -3,11 +3,11 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-COPY package.json yarn.lock* package-lock.json* ./
-RUN yarn install --frozen-lockfile || npm ci
+COPY package.json package-lock.json ./
+RUN npm ci
 
 COPY . .
-RUN yarn build || npm run build
+RUN npm run build
 
 # --- Stage 2: Production ---
 FROM node:20-alpine AS production
@@ -17,8 +17,9 @@ RUN addgroup -g 1001 -S nodejs && \
 
 WORKDIR /app
 
-COPY --from=builder /app/package.json /app/yarn.lock ./
-RUN yarn install --production --frozen-lockfile
+COPY --from=builder /app/package.json /app/package-lock.json ./
+RUN npm ci --omit=dev
+
 COPY --from=builder --chown=nestjs:nodejs /app/dist ./dist
 COPY scripts/docker-entrypoint.sh /app/scripts/docker-entrypoint.sh
 RUN chmod +x /app/scripts/docker-entrypoint.sh && chown -R nestjs:nodejs /app
