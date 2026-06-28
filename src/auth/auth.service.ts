@@ -8,7 +8,7 @@ import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { createHash, timingSafeEqual } from 'crypto';
-import { compareSync, hashSync, compare, hash } from 'bcryptjs';
+import { compare, hash } from 'bcryptjs';
 import { UsersService } from 'src/users/users.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
@@ -137,7 +137,7 @@ export class AuthService {
       );
     }
 
-    const isValid = compareSync(dto.password, user.password);
+    const isValid = await compare(dto.password, user.password);
     if (!isValid) {
       const result = await this.usersService.recordFailedLogin(user.id);
       if (result.lockedUntil) {
@@ -311,7 +311,7 @@ export class AuthService {
       throw new ConflictException('User already exists');
     }
 
-    const hashedPassword = hashSync(dto.password, 10);
+    const hashedPassword = await hash(dto.password, 12);
 
     const user = await this.usersService.create({
       email: dto.email,

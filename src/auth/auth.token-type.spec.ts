@@ -41,7 +41,7 @@ describe('Token type separation (S1)', () => {
 
     it('access token is signed with tokenType=access', async () => {
       const bcryptjs = await import('bcryptjs');
-      jest.spyOn(bcryptjs, 'compareSync').mockReturnValue(true);
+      jest.spyOn(bcryptjs, 'compare').mockResolvedValue(true as never);
       await service.login({ email: 't@x.com', password: 'p' });
       const accessCall = jwt.sign.mock.calls.find((c: any[]) => c[0]?.tokenType === 'access');
       expect(accessCall).toBeDefined();
@@ -49,7 +49,7 @@ describe('Token type separation (S1)', () => {
 
     it('refresh token is signed with tokenType=refresh', async () => {
       const bcryptjs = await import('bcryptjs');
-      jest.spyOn(bcryptjs, 'compareSync').mockReturnValue(true);
+      jest.spyOn(bcryptjs, 'compare').mockResolvedValue(true as never);
       await service.login({ email: 't@x.com', password: 'p' });
       const refreshCall = jwt.sign.mock.calls.find((c: any[]) => c[0]?.tokenType === 'refresh');
       expect(refreshCall).toBeDefined();

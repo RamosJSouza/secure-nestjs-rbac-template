@@ -70,7 +70,7 @@ describe('AuthService', () => {
       mockJwtService.sign.mockReturnValue('mock-jwt');
 
       const bcryptjs = await import('bcryptjs');
-      jest.spyOn(bcryptjs, 'compareSync').mockReturnValue(true);
+      jest.spyOn(bcryptjs, 'compare').mockResolvedValue(true as never);
 
       const result = await service.login(loginDto);
 
@@ -117,7 +117,7 @@ describe('AuthService', () => {
       };
       mockUsersService.findOne.mockResolvedValue(mockUser);
       const bcryptjs = await import('bcryptjs');
-      jest.spyOn(bcryptjs, 'compareSync').mockReturnValue(false);
+      jest.spyOn(bcryptjs, 'compare').mockResolvedValue(false as never);
       mockUsersService.recordFailedLogin.mockResolvedValue({
         failedLoginAttempts: 1,
         lockedUntil: null,
@@ -142,7 +142,7 @@ describe('AuthService', () => {
         password: 'hashed',
       });
       const bcryptjs = await import('bcryptjs');
-      jest.spyOn(bcryptjs, 'hashSync').mockReturnValue('hashed');
+      jest.spyOn(bcryptjs, 'hash').mockResolvedValue('hashed' as never);
 
       const result = await service.register(registerDto);
 
