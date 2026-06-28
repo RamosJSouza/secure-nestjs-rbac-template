@@ -1,4 +1,6 @@
 import { buildCacheStores, buildCacheStoresOptions } from './cache-stores.factory';
+import KeyvRedis from '@keyv/redis';
+import { Keyv } from 'keyv';
 
 describe('buildCacheStores (S3)', () => {
   it('returns a memory store when REDIS_HOST is not set', () => {
@@ -7,6 +9,8 @@ describe('buildCacheStores (S3)', () => {
     expect(stores.length).toBe(1);
     expect(stores[0]).toBeDefined();
     expect(typeof stores[0].get).toBe('function');
+    expect(stores[0]).toBeInstanceOf(Keyv);
+    expect(stores[0]).not.toBeInstanceOf(KeyvRedis);
   });
 
   it('returns a KeyvRedis-backed store when REDIS_HOST is set (no eager connect)', () => {
@@ -15,7 +19,7 @@ describe('buildCacheStores (S3)', () => {
     expect(stores.length).toBe(1);
     expect(stores[0]).toBeDefined();
     expect(typeof stores[0].get).toBe('function');
-    expect((stores[0] as any).namespace ?? 'redis').toBeTruthy();
+    expect(stores[0]).toBeInstanceOf(KeyvRedis);
   });
 
   it('respects RBAC_CACHE_TTL when provided', () => {

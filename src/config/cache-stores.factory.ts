@@ -10,7 +10,7 @@ export interface CacheOptions {
 
 export function buildCacheStores(configService: ConfigService): (Keyv | KeyvStoreAdapter)[] {
   const host = configService.get<string>('REDIS_HOST');
-  const port = configService.get<number>('REDIS_PORT') ?? 6379;
+  const port = Number(configService.get<string | number>('REDIS_PORT')) || 6379;
 
   if (host) {
     return [new KeyvRedis({ socket: { host, port } })];
