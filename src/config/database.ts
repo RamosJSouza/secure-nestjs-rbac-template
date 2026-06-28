@@ -3,6 +3,16 @@ import * as dotenv from 'dotenv';
 
 dotenv.config();
 
+if (
+  process.env.DB_SSL === 'true' &&
+  process.env.NODE_ENV === 'production' &&
+  !process.env.DB_SSL_CA
+) {
+  throw new Error(
+    'DB_SSL_CA is required when DB_SSL=true and NODE_ENV=production (refusing to connect with unverified server certificate)',
+  );
+}
+
 export const dataSourceOptions: DataSourceOptions = {
   type: 'postgres',
   host: process.env.DB_HOST,
