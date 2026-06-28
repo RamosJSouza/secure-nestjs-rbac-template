@@ -18,16 +18,13 @@ describe('FeatureController (e2e)', () => {
             controllers: [FeatureController],
             providers: [
                 { provide: FeatureService, useValue: mockFeatureService },
-                {
-                    provide: JwtAuthGuard,
-                    useValue: { canActivate: () => true },
-                },
-                {
-                    provide: PermissionGuard,
-                    useValue: { canActivate: () => true },
-                }
             ],
-        }).compile();
+        })
+            .overrideGuard(JwtAuthGuard)
+            .useValue({ canActivate: () => true })
+            .overrideGuard(PermissionGuard)
+            .useValue({ canActivate: () => true })
+            .compile();
 
         app = moduleFixture.createNestApplication();
         await app.init();
