@@ -5,6 +5,7 @@ import {
   TypeOrmHealthIndicator,
 } from '@nestjs/terminus';
 import { RedisHealthIndicator } from './indicators/redis.health';
+import { Public } from '@/common/decorators/public.decorator';
 
 @Controller('health')
 export class HealthController {
@@ -15,11 +16,13 @@ export class HealthController {
   ) {}
 
   @Get('liveness')
+  @Public()
   liveness() {
     return { status: 'ok' };
   }
 
   @Get('readiness')
+  @Public()
   @HealthCheck()
   readiness() {
     return this.health.check([

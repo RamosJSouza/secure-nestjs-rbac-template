@@ -29,6 +29,7 @@ import {
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from './strategy/jwt-auth.guard';
 import { PermissionGuard, RequirePermissions } from '@/common/guards/permission.guard';
+import { Public } from '@/common/decorators/public.decorator';
 import { Auditable } from '@/modules/audit/decorators/auditable.decorator';
 
 @ApiTags('auth')
@@ -37,6 +38,7 @@ export class AuthController {
   constructor(private authService: AuthService) {}
 
   @Post('login')
+  @Public()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'User login',
@@ -63,6 +65,7 @@ export class AuthController {
   }
 
   @Post('refresh')
+  @Public()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Refresh access token',
