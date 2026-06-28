@@ -1,6 +1,5 @@
 import { Module, Global } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { CacheModule } from '@nestjs/cache-manager';
 import { Feature } from './entities/feature.entity';
 import { Permission } from './entities/permission.entity';
 import { Role } from './entities/role.entity';
@@ -24,10 +23,6 @@ import { RoleController } from './controllers/role.controller';
             RolePermission,
             User,
         ]),
-        CacheModule.register({
-            ttl: 300000,
-            max: 1000,
-        }),
     ],
     controllers: [
         FeatureController,

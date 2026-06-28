@@ -31,6 +31,7 @@
     "docker:down": "docker-compose down"
   },
   "dependencies": {
+    "@keyv/redis": "^5.1.6",
     "@nestjs/cache-manager": "^3.1.0",
     "@nestjs/common": "11.1.13",
     "@nestjs/config": "4.0.3",
@@ -45,12 +46,14 @@
     "@nestjs/typeorm": "^11.0.0",
     "bcryptjs": "^3.0.3",
     "cache-manager": "^7.2.8",
+    "cacheable": "^2.5.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.3",
     "dotenv": "17.2.4",
     "express-rate-limit": "^8.2.1",
     "helmet": "^8.1.0",
     "joi": "^18.0.2",
+    "keyv": "^5.6.0",
     "nest-resend": "^3.1.0",
     "nestjs-pino": "^4.5.0",
     "passport": "0.7.0",
