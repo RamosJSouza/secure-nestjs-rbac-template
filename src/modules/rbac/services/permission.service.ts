@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { Permission } from '../entities/permission.entity';
@@ -32,7 +32,6 @@ export class PermissionService {
             where: { featureId },
             relations: ['feature'],
             order: { action: 'ASC' },
-            cache: 300000
         });
     }
 

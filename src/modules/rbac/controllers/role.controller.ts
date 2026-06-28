@@ -3,7 +3,6 @@ import {
     ApiTags,
     ApiOperation,
     ApiBearerAuth,
-    ApiResponse,
     ApiCreatedResponse,
     ApiOkResponse,
     ApiNoContentResponse,

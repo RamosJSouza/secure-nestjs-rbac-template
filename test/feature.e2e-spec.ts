@@ -8,7 +8,7 @@ import { FeatureService } from 'src/modules/rbac/services/feature.service';
 
 describe('FeatureController (e2e)', () => {
     let app: INestApplication;
-    let mockFeatureService = {
+    const mockFeatureService = {
         findAll: jest.fn().mockResolvedValue({ data: [], total: 0 }),
         create: jest.fn().mockResolvedValue({ id: '1', key: 'test', name: 'Test' }),
     };
@@ -18,16 +18,13 @@ describe('FeatureController (e2e)', () => {
             controllers: [FeatureController],
             providers: [
                 { provide: FeatureService, useValue: mockFeatureService },
-                {
-                    provide: JwtAuthGuard,
-                    useValue: { canActivate: () => true },
-                },
-                {
-                    provide: PermissionGuard,
-                    useValue: { canActivate: () => true },
-                }
             ],
-        }).compile();
+        })
+            .overrideGuard(JwtAuthGuard)
+            .useValue({ canActivate: () => true })
+            .overrideGuard(PermissionGuard)
+            .useValue({ canActivate: () => true })
+            .compile();
 
         app = moduleFixture.createNestApplication();
         await app.init();

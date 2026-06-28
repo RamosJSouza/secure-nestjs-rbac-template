@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException, Logger, PreconditionFailedException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { Feature } from '../entities/feature.entity';
@@ -58,7 +58,6 @@ export class FeatureService {
         const feature = await this.featureRepository.findOne({
             where: { id },
             relations: ['permissions'],
-            cache: 60000
         });
 
         if (!feature) {

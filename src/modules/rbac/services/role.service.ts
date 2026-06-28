@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { Role } from '../entities/role.entity';
@@ -55,7 +55,6 @@ export class RoleService {
         return this.roleRepository.find({
             relations: ['rolePermissions', 'rolePermissions.permission', 'rolePermissions.permission.feature'],
             order: { name: 'ASC' },
-            cache: true
         });
     }
 
@@ -113,11 +112,7 @@ export class RoleService {
     }
 
     async assignPermissions(roleId: string, dto: AssignPermissionsDto, currentUserId?: string): Promise<void> {
-        const role = await this.findOne(roleId);
-
-        if (role.name === 'Super Admin') {
-            // In a real system, you might restrict this even further
-        }
+        await this.findOne(roleId);
 
         const queryRunner = this.dataSource.createQueryRunner();
         await queryRunner.connect();

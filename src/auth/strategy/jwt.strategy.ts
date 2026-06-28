@@ -1,7 +1,9 @@
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { PassportStrategy } from '@nestjs/passport';
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import { Cache } from 'cache-manager';
 import { UsersService } from 'src/users/users.service';
 import { RequestContext } from '@/logger/request-context';
 
@@ -10,6 +12,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(
     private configService: ConfigService,
     private usersService: UsersService,
+    @Inject(CACHE_MANAGER) private cacheManager: Cache,
   ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
@@ -19,10 +22,24 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
-  async validate(payload: { sub: string; email: string; roleId?: string; tokenType: 'access' | 'refresh' }) {
+  async validate(payload: {
+    sub: string;
+    email: string;
+    roleId?: string;
+    tokenType: 'access' | 'refresh';
+    jti?: string;
+  }) {
     if (payload.tokenType !== 'access') {
       throw new UnauthorizedException('Wrong token type');
     }
+
+    if (payload.jti) {
+      const denied = await this.cacheManager.get(`jti:${payload.jti}`);
+      if (denied) {
+        throw new UnauthorizedException('Token has been revoked');
+      }
+    }
+
     const user = await this.usersService.findOne(payload.email);
 
     if (!user) {
@@ -40,6 +57,6 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('Account is locked. Try again later.');
     }
 
-    return user;
+    return { ...user, jti: payload.jti };
   }
 }

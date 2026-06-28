@@ -4,7 +4,6 @@ import { LoggerService } from 'src/logger/logger.service';
 
 describe('TasksService', () => {
   let service: TasksService;
-  let loggerService: LoggerService;
 
   const mockLoggerService = {
     debug: jest.fn(),
@@ -25,7 +24,6 @@ describe('TasksService', () => {
     }).compile();
 
     service = module.get<TasksService>(TasksService);
-    loggerService = module.get<LoggerService>(LoggerService);
   });
 
   afterEach(() => {

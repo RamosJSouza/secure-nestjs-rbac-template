@@ -1,12 +1,15 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ScheduleModule } from '@nestjs/schedule';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { RbacModule } from './modules/rbac/rbac.module';
 import { OrganizationsModule } from './modules/organizations/organizations.module';
 import { AuditModule } from './modules/audit/audit.module';
+import { JwtAuthGuard } from './auth/strategy/jwt-auth.guard';
 import { HealthModule } from './modules/health/health.module';
 import { GracefulShutdownModule } from './graceful-shutdown/graceful-shutdown.module';
 import { LoggerModule } from './logger/logger.module';
@@ -39,6 +42,10 @@ import { buildCacheStoresOptions } from './config/cache-stores.factory';
       inject: [ConfigService],
       useFactory: buildCacheStoresOptions,
     }),
+    ThrottlerModule.forRoot([
+      { name: 'default', ttl: 60_000, limit: 100 },
+      { name: 'login', ttl: 60_000, limit: 10 },
+    ]),
     RbacModule,
     OrganizationsModule,
     AuditModule,
@@ -48,6 +55,10 @@ import { buildCacheStoresOptions } from './config/cache-stores.factory';
     UsersModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
+  ],
 })
 export class AppModule {}

@@ -2,7 +2,6 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import helmet from 'helmet';
-import rateLimit from 'express-rate-limit';
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Logger } from 'nestjs-pino';
@@ -19,21 +18,11 @@ async function bootstrap() {
     app.use(helmet());
 
     app.enableCors({
-      origin: configService.get('ALLOWED_ORIGINS', '').split(','), // Ex: https://admin.example.com
+      origin: configService.get('ALLOWED_ORIGINS', '').split(','),
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
       credentials: true,
       allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Correlation-Id'],
     });
-
-    app.use(
-      rateLimit({
-        windowMs: 15 * 60 * 1000,
-        max: 100,
-        standardHeaders: true,
-        legacyHeaders: false,
-        message: 'Too many requests from this IP, please try again after 15 minutes',
-      }),
-    );
 
     app.useGlobalPipes(
       new ValidationPipe({

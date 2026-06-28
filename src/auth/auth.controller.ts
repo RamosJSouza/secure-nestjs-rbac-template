@@ -8,12 +8,16 @@ import {
   UseGuards,
   UnauthorizedException,
 } from '@nestjs/common';
+import type { ExecutionContext } from '@nestjs/common';
 import { Request } from 'express';
+import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { RefreshDto } from './dto/refresh.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { LogoutDto } from './dto/logout.dto';
+import { buildLoginThrottleKey } from './throttlers/login-throttle.util';
 import {
   ApiTags,
   ApiOperation,
@@ -26,6 +30,7 @@ import {
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from './strategy/jwt-auth.guard';
 import { PermissionGuard, RequirePermissions } from '@/common/guards/permission.guard';
+import { Public } from '@/common/decorators/public.decorator';
 import { Auditable } from '@/modules/audit/decorators/auditable.decorator';
 
 @ApiTags('auth')
@@ -34,6 +39,7 @@ export class AuthController {
   constructor(private authService: AuthService) {}
 
   @Post('login')
+  @Public()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'User login',
@@ -41,6 +47,18 @@ export class AuthController {
   })
   @ApiOkResponse({ description: 'Login successful, returns access_token and refresh_token' })
   @ApiBadRequestResponse({ description: 'Invalid email or password' })
+  @SkipThrottle({ default: true })
+  @Throttle({
+    login: {
+      limit: 10,
+      ttl: 60_000,
+      getTracker: (req: Record<string, any>) => req.ip ?? req.socket?.remoteAddress ?? '',
+      generateKey: (ctx: ExecutionContext, tracker: string) => {
+        const req = ctx.switchToHttp().getRequest();
+        return buildLoginThrottleKey(tracker, req.body?.email);
+      },
+    },
+  })
   async login(@Body() dto: LoginDto, @Req() req: Request) {
     const ip = req.ip ?? req.socket?.remoteAddress;
     const userAgent = req.get('user-agent');
@@ -48,6 +66,7 @@ export class AuthController {
   }
 
   @Post('refresh')
+  @Public()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Refresh access token',
@@ -59,6 +78,39 @@ export class AuthController {
     const ip = req.ip ?? req.socket?.remoteAddress;
     const userAgent = req.get('user-agent');
     return this.authService.refresh(dto, ip, userAgent);
+  }
+
+  @Post('logout')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Logout',
+    description: 'Revokes the current session and denylists the access token.',
+  })
+  @ApiOkResponse({ description: 'Logged out' })
+  @ApiUnauthorizedResponse({ description: 'Authentication required' })
+  async logout(
+    @Req() req: Request & { user?: { id: string; jti?: string } },
+    @Body() dto: LogoutDto,
+  ) {
+    await this.authService.logout(req.user!.id, req.user?.jti, dto.refresh_token);
+    return { message: 'Logged out' };
+  }
+
+  @Post('logout-all')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Logout all sessions',
+    description: 'Revokes all sessions for the user and denylists the access token.',
+  })
+  @ApiOkResponse({ description: 'All sessions revoked' })
+  @ApiUnauthorizedResponse({ description: 'Authentication required' })
+  async logoutAll(@Req() req: Request & { user?: { id: string; jti?: string } }) {
+    await this.authService.logoutAll(req.user!.id, req.user?.jti);
+    return { message: 'All sessions revoked' };
   }
 
   @Post('register')

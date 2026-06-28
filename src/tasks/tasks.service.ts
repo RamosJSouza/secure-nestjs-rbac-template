@@ -23,7 +23,7 @@ export class TasksService {
     this.logger.debug('Called once after 5 seconds');
   }
 
-  create(createTaskDto: CreateTaskDto) {
+  create(_createTaskDto: CreateTaskDto) {
     return 'This action adds a new task';
   }
 
@@ -35,7 +35,7 @@ export class TasksService {
     return `This action returns a #${id} task`;
   }
 
-  update(id: number, updateTaskDto: UpdateTaskDto) {
+  update(id: number, _updateTaskDto: UpdateTaskDto) {
     return `This action updates a #${id} task`;
   }
 

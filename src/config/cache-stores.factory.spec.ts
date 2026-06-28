@@ -4,7 +4,7 @@ import { Keyv } from 'keyv';
 
 describe('buildCacheStores (S3)', () => {
   it('returns a memory store when REDIS_HOST is not set', () => {
-    const cfg: any = { get: (k: string) => undefined };
+    const cfg: any = { get: (_k: string) => undefined };
     const stores = buildCacheStores(cfg);
     expect(stores.length).toBe(1);
     expect(stores[0]).toBeDefined();
