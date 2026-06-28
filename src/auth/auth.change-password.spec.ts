@@ -16,6 +16,7 @@ describe('changePassword (S2)', () => {
   beforeEach(async () => {
     users = {
       findById: jest.fn().mockResolvedValue({ id: 'u1', email: 't@x.com', password: '$2b$10$oldhash', isActive: true }),
+      findByIdWithPassword: jest.fn().mockResolvedValue({ id: 'u1', email: 't@x.com', password: '$2b$10$oldhash', isActive: true }),
       findOne: jest.fn().mockResolvedValue({ id: 'u1', email: 't@x.com', password: '$2b$10$oldhash', isActive: true }),
       updatePassword: jest.fn().mockResolvedValue(undefined),
     };

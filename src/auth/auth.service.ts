@@ -120,7 +120,7 @@ export class AuthService {
     ip?: string,
     userAgent?: string,
   ): Promise<{ email: string; access_token: string; refresh_token: string }> {
-    const user = await this.usersService.findOne(dto.email);
+    const user = await this.usersService.findOneWithPassword(dto.email);
 
     if (!user) {
       throw new UnauthorizedException('Invalid credentials');
@@ -333,7 +333,7 @@ export class AuthService {
     currentPassword: string,
     newPassword: string,
   ): Promise<{ userId: string }> {
-    const user = await this.usersService.findById(userId);
+    const user = await this.usersService.findByIdWithPassword(userId);
     if (!user) {
       throw new UnauthorizedException('User not found');
     }

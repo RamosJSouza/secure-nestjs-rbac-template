@@ -26,15 +26,47 @@ export class UsersService {
     return this.usersRepository.find();
   }
 
-  findOne(email: string): Promise<User> {
+  findOne(email: string): Promise<User | null> {
     return this.usersRepository.findOne({
       where: { email },
     });
   }
 
-  findById(id: string): Promise<User> {
+  findOneWithPassword(email: string): Promise<User | null> {
+    return this.usersRepository.findOne({
+      where: { email },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        password: true,
+        roleId: true,
+        isActive: true,
+        lockedUntil: true,
+        failedLoginAttempts: true,
+      },
+    });
+  }
+
+  findById(id: string): Promise<User | null> {
     return this.usersRepository.findOne({
       where: { id },
+    });
+  }
+
+  findByIdWithPassword(id: string): Promise<User | null> {
+    return this.usersRepository.findOne({
+      where: { id },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        password: true,
+        roleId: true,
+        isActive: true,
+        lockedUntil: true,
+        failedLoginAttempts: true,
+      },
     });
   }
 

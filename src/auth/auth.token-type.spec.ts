@@ -25,6 +25,7 @@ describe('Token type separation (S1)', () => {
       };
       const users: any = {
         findOne: jest.fn().mockResolvedValue({ id: 'u1', email: 't@x.com', roleId: 'r', isActive: true }),
+        findOneWithPassword: jest.fn().mockResolvedValue({ id: 'u1', email: 't@x.com', password: 'h', roleId: 'r', isActive: true }),
         resetFailedLogin: jest.fn(),
       };
       const module = await Test.createTestingModule({

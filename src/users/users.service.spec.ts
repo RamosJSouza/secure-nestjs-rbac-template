@@ -118,6 +118,43 @@ describe('UsersService', () => {
       expect(mockRepository.findOne).toHaveBeenCalledWith({ where: { id } });
       expect(result).toEqual(user);
     });
+
+    it('findById does not select the password column', async () => {
+      const id = 'u1';
+      mockRepository.findOne.mockResolvedValue({ id, email: 't@x.com' });
+      await service.findById(id);
+      const callArg = mockRepository.findOne.mock.calls[0][0];
+      expect(callArg.select?.password).not.toBe(true);
+    });
+  });
+
+  describe('findOneWithPassword', () => {
+    it('findOne does not select the password column', async () => {
+      mockRepository.findOne.mockResolvedValue({ id: 'u1', email: 't@x.com' });
+      await service.findOne('t@x.com');
+      const callArg = mockRepository.findOne.mock.calls[0][0];
+      expect(callArg.select?.password).not.toBe(true);
+    });
+
+    it('findOneWithPassword selects the password column', async () => {
+      mockRepository.findOne.mockResolvedValue({ id: 'u1', email: 't@x.com', password: 'h' });
+      const user = await service.findOneWithPassword('t@x.com');
+      expect(mockRepository.findOne).toHaveBeenCalledWith({
+        where: { email: 't@x.com' },
+        select: expect.objectContaining({ password: true }),
+      });
+      expect(user?.password).toBe('h');
+    });
+
+    it('findByIdWithPassword selects the password column', async () => {
+      mockRepository.findOne.mockResolvedValue({ id: 'u1', email: 't@x.com', password: 'h' });
+      const user = await service.findByIdWithPassword('u1');
+      expect(mockRepository.findOne).toHaveBeenCalledWith({
+        where: { id: 'u1' },
+        select: expect.objectContaining({ password: true }),
+      });
+      expect(user?.password).toBe('h');
+    });
   });
 
   describe('remove', () => {
