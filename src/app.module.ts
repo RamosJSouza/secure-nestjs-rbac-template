@@ -37,7 +37,7 @@ import { buildCacheStoresOptions } from './config/cache-stores.factory';
     CacheModule.registerAsync({
       isGlobal: true,
       inject: [ConfigService],
-      useFactory: (cfg: ConfigService) => buildCacheStoresOptions(cfg),
+      useFactory: buildCacheStoresOptions,
     }),
     RbacModule,
     OrganizationsModule,

@@ -3,7 +3,7 @@ import KeyvRedis from '@keyv/redis';
 import { Keyv, KeyvStoreAdapter } from 'keyv';
 import { KeyvCacheableMemory } from 'cacheable';
 
-export interface CacheOptions {
+interface CacheOptions {
   ttl: number;
   stores: (Keyv | KeyvStoreAdapter)[];
 }

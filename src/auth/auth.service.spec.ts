@@ -20,6 +20,7 @@ describe('AuthService', () => {
     create: jest.fn(),
     updatePassword: jest.fn().mockResolvedValue(undefined),
     resetFailedLogin: jest.fn().mockResolvedValue(undefined),
+    recordFailedLogin: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -79,7 +80,6 @@ describe('AuthService', () => {
 
       expect(result).toHaveProperty('access_token');
       expect(result.email).toBe(loginDto.email);
-      // sign is called with (payload, options) — two arguments
       expect(mockJwtService.sign).toHaveBeenCalledWith(
         expect.objectContaining({
           sub: mockUser.id,
@@ -99,7 +99,6 @@ describe('AuthService', () => {
     });
 
     it('should throw UnauthorizedException for inactive user', async () => {
-      // login checks isActive before compareSync/lockedUntil, so no bcrypt mock needed
       mockUsersService.findOne.mockResolvedValue({
         id: 'uuid',
         email: 'test@example.com',
@@ -123,10 +122,10 @@ describe('AuthService', () => {
       mockUsersService.findOne.mockResolvedValue(mockUser);
       const bcryptjs = await import('bcryptjs');
       jest.spyOn(bcryptjs, 'compareSync').mockReturnValue(false);
-      // recordFailedLogin path needs usersService.recordFailedLogin
-      (mockUsersService as any).recordFailedLogin = jest
-        .fn()
-        .mockResolvedValue({ failedLoginAttempts: 1, lockedUntil: null });
+      mockUsersService.recordFailedLogin.mockResolvedValue({
+        failedLoginAttempts: 1,
+        lockedUntil: null,
+      });
       await expect(
         service.login({ email: 't@x.com', password: 'wrong' }),
       ).rejects.toThrow(UnauthorizedException);

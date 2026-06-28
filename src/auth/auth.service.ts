@@ -326,8 +326,6 @@ export class AuthService {
     userId: string,
     currentPassword: string,
     newPassword: string,
-    ip?: string,
-    userAgent?: string,
   ): Promise<{ userId: string }> {
     const user = await this.usersService.findById(userId);
     if (!user) {
