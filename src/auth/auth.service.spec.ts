@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { JwtService } from '@nestjs/jwt';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { UnauthorizedException, ConflictException } from '@nestjs/common';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { AuthService } from './auth.service';
 import { UsersService } from 'src/users/users.service';
 import { AuditLogService } from '@/modules/audit/audit-log.service';
@@ -50,6 +51,7 @@ describe('AuthService', () => {
         { provide: AuditLogService, useValue: auditLogService },
         { provide: getRepositoryToken(Session), useValue: sessionRepo },
         { provide: getRepositoryToken(Role), useValue: { findOne: jest.fn().mockResolvedValue({ id: 'viewer-role-uuid' }) } },
+        { provide: CACHE_MANAGER, useValue: { get: jest.fn().mockResolvedValue(undefined), set: jest.fn().mockResolvedValue(undefined) } },
       ],
     }).compile();
 
@@ -198,6 +200,34 @@ describe('AuthService', () => {
       await expect(service.refresh({ refresh_token: 't' })).rejects.toThrow(
         'Account locked due to too many failed attempts',
       );
+    });
+  });
+
+  describe('logout', () => {
+    it('denylists the access jti and revokes the matching session', async () => {
+      const setSpy = jest.fn().mockResolvedValue(undefined);
+      (service as any).cacheManager = { set: setSpy, get: jest.fn().mockResolvedValue(undefined) };
+      sessionRepo.findOne.mockResolvedValue({ id: 's1', userId: 'u1', refreshTokenHash: 'h', revokedAt: null });
+      sessionRepo.save = jest.fn().mockResolvedValue(undefined);
+
+      await service.logout('u1', 'access-jti-1', 'refresh-token-1');
+
+      expect(setSpy).toHaveBeenCalledWith('jti:access-jti-1', expect.anything(), expect.any(Number));
+      expect(sessionRepo.save).toHaveBeenCalledWith(expect.objectContaining({ id: 's1', revokedAt: expect.any(Date) }));
+    });
+
+    it('logoutAll revokes every active session of the user and denylists the jti', async () => {
+      const setSpy = jest.fn().mockResolvedValue(undefined);
+      const executeMock = jest.fn().mockResolvedValue({ affected: 3 });
+      (service as any).cacheManager = { set: setSpy };
+      sessionRepo.createQueryBuilder = jest.fn(() => ({
+        update: jest.fn(() => ({ set: jest.fn(() => ({ where: jest.fn(() => ({ execute: executeMock })) })) })),
+      })) as any;
+
+      await service.logoutAll('u1', 'access-jti-1');
+
+      expect(setSpy).toHaveBeenCalledWith('jti:access-jti-1', expect.anything(), expect.any(Number));
+      expect(executeMock).toHaveBeenCalled();
     });
   });
 });

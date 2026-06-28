@@ -4,12 +4,15 @@ import {
   ConflictException,
   InternalServerErrorException,
   Logger,
+  Inject,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
-import { createHash, timingSafeEqual } from 'crypto';
+import { createHash, timingSafeEqual, randomUUID } from 'crypto';
 import { compare, hash } from 'bcryptjs';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import { Cache } from 'cache-manager';
 import { UsersService } from 'src/users/users.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
@@ -20,6 +23,7 @@ import { Role } from '@/modules/rbac/entities/role.entity';
 import { AuditLogService } from '@/modules/audit/audit-log.service';
 
 const ACCESS_TOKEN_EXPIRES = '15m';
+const ACCESS_TOKEN_EXPIRES_MS = 15 * 60 * 1000;
 const REFRESH_TOKEN_EXPIRES = '7d';
 
 @Injectable()
@@ -34,6 +38,7 @@ export class AuthService {
     private sessionRepository: Repository<Session>,
     @InjectRepository(Role)
     private roleRepository: Repository<Role>,
+    @Inject(CACHE_MANAGER) private cacheManager: Cache,
   ) {}
 
   private hashRefreshToken(token: string): string {
@@ -230,9 +235,11 @@ export class AuthService {
     userAgent?: string,
   ): Promise<{ email: string; access_token: string; refresh_token: string }> {
     const payload = { sub: user.id, email: user.email, roleId: user.roleId };
+    const accessJti = randomUUID();
+    const refreshJti = randomUUID();
 
     const accessToken = this.jwtService.sign(
-      { ...payload, tokenType: 'access' },
+      { ...payload, tokenType: 'access', jti: accessJti },
       {
         expiresIn: ACCESS_TOKEN_EXPIRES,
         algorithm: 'RS256',
@@ -240,7 +247,7 @@ export class AuthService {
     );
 
     const refreshToken = this.jwtService.sign(
-      { ...payload, tokenType: 'refresh' },
+      { ...payload, tokenType: 'refresh', jti: refreshJti },
       {
         expiresIn: REFRESH_TOKEN_EXPIRES,
         algorithm: 'RS256',
@@ -257,6 +264,7 @@ export class AuthService {
       ip: ip ?? null,
       userAgent: userAgent ?? null,
       expiresAt,
+      jti: refreshJti,
     });
     await this.sessionRepository.save(session);
 
@@ -277,9 +285,11 @@ export class AuthService {
     await this.sessionRepository.save(oldSession);
 
     const payload = { sub: user.id, email: user.email, roleId: user.roleId };
+    const accessJti = randomUUID();
+    const refreshJti = randomUUID();
 
     const accessToken = this.jwtService.sign(
-      { ...payload, tokenType: 'access' },
+      { ...payload, tokenType: 'access', jti: accessJti },
       {
         expiresIn: ACCESS_TOKEN_EXPIRES,
         algorithm: 'RS256',
@@ -287,7 +297,7 @@ export class AuthService {
     );
 
     const refreshToken = this.jwtService.sign(
-      { ...payload, tokenType: 'refresh' },
+      { ...payload, tokenType: 'refresh', jti: refreshJti },
       {
         expiresIn: REFRESH_TOKEN_EXPIRES,
         algorithm: 'RS256',
@@ -305,6 +315,7 @@ export class AuthService {
       userAgent: userAgent ?? null,
       expiresAt,
       rotatedFromSessionId: oldSession.id,
+      jti: refreshJti,
     });
     await this.sessionRepository.save(newSession);
 
@@ -372,5 +383,27 @@ export class AuthService {
     );
 
     return { userId };
+  }
+
+  async logout(_userId: string, accessJti: string, refreshToken?: string): Promise<void> {
+    await this.cacheManager.set(`jti:${accessJti}`, 1, ACCESS_TOKEN_EXPIRES_MS);
+    if (refreshToken) {
+      const tokenHash = this.hashRefreshToken(refreshToken);
+      const session = await this.sessionRepository.findOne({ where: { refreshTokenHash: tokenHash } });
+      if (session && !session.revokedAt) {
+        session.revokedAt = new Date();
+        await this.sessionRepository.save(session);
+      }
+    }
+  }
+
+  async logoutAll(userId: string, accessJti: string): Promise<void> {
+    await this.cacheManager.set(`jti:${accessJti}`, 1, ACCESS_TOKEN_EXPIRES_MS);
+    await this.sessionRepository
+      .createQueryBuilder()
+      .update(Session)
+      .set({ revokedAt: () => 'NOW()' })
+      .where('user_id = :userId AND revoked_at IS NULL', { userId })
+      .execute();
   }
 }

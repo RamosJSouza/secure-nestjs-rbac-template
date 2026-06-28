@@ -1,6 +1,7 @@
 import { Test } from '@nestjs/testing';
 import { JwtService } from '@nestjs/jwt';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { AuthService } from './auth.service';
 import { UsersService } from 'src/users/users.service';
 import { AuditLogService } from '@/modules/audit/audit-log.service';
@@ -37,6 +38,7 @@ describe('Token type separation (S1)', () => {
           { provide: AuditLogService, useValue: { log: jest.fn() } },
           { provide: getRepositoryToken(Session), useValue: sessionRepo },
           { provide: getRepositoryToken(Role), useValue: { findOne: jest.fn().mockResolvedValue({ id: 'viewer-role-uuid' }) } },
+          { provide: CACHE_MANAGER, useValue: { get: jest.fn().mockResolvedValue(undefined), set: jest.fn().mockResolvedValue(undefined) } },
         ],
       }).compile();
       service = module.get(AuthService);
@@ -58,6 +60,14 @@ describe('Token type separation (S1)', () => {
       expect(refreshCall).toBeDefined();
     });
 
+    it('access token is signed with a jti claim', async () => {
+      const bcryptjs = await import('bcryptjs');
+      jest.spyOn(bcryptjs, 'compare').mockResolvedValue(true as never);
+      await service.login({ email: 't@x.com', password: 'p' });
+      const accessCall = jwt.sign.mock.calls.find((c: any[]) => c[0]?.tokenType === 'access');
+      expect(accessCall?.[0]?.jti).toEqual(expect.any(String));
+    });
+
     it('refresh rejects a token with tokenType=access (specific message, before DB lookup)', async () => {
       jwt.verify.mockReturnValue({ sub: 'u1', email: 't@x.com', tokenType: 'access' });
       await expect(service.refresh({ refresh_token: 't' })).rejects.toThrow('Not a refresh token');
@@ -68,8 +78,9 @@ describe('Token type separation (S1)', () => {
     it('rejects a refresh token presented as access (specific message, no user lookup)', async () => {
       const users: any = { findOne: jest.fn() };
       const cfg: any = { get: (k: string) => (k === 'keys.publicKey' ? 'pk' : undefined) };
-      const strategy = new JwtStrategy(cfg, users);
-      await expect(strategy.validate({ sub: 'u1', email: 't@x.com', tokenType: 'refresh' }))
+      const cacheManager: any = { get: jest.fn().mockResolvedValue(undefined) };
+      const strategy = new JwtStrategy(cfg, users, cacheManager);
+      await expect(strategy.validate({ sub: 'u1', email: 't@x.com', tokenType: 'refresh', jti: 'jti-1' }))
         .rejects.toThrow('Wrong token type');
       expect(users.findOne).not.toHaveBeenCalled();
     });
@@ -78,10 +89,21 @@ describe('Token type separation (S1)', () => {
       const user = { id: 'u1', email: 't@x.com', isActive: true, lockedUntil: null };
       const users: any = { findOne: jest.fn().mockResolvedValue(user) };
       const cfg: any = { get: (k: string) => (k === 'keys.publicKey' ? 'pk' : undefined) };
-      const strategy = new JwtStrategy(cfg, users);
-      const result = await strategy.validate({ sub: 'u1', email: 't@x.com', tokenType: 'access' });
-      expect(result).toEqual(user);
+      const cacheManager: any = { get: jest.fn().mockResolvedValue(undefined) };
+      const strategy = new JwtStrategy(cfg, users, cacheManager);
+      const result = await strategy.validate({ sub: 'u1', email: 't@x.com', tokenType: 'access', jti: 'jti-1' });
+      expect(result).toEqual({ ...user, jti: 'jti-1' });
       expect(users.findOne).toHaveBeenCalledWith('t@x.com');
+    });
+
+    it('rejects a denylisted access token (no user lookup)', async () => {
+      const users: any = { findOne: jest.fn() };
+      const cfg: any = { get: (k: string) => (k === 'keys.publicKey' ? 'pk' : undefined) };
+      const cacheManager: any = { get: jest.fn().mockResolvedValue(1) };
+      const strategy = new JwtStrategy(cfg, users, cacheManager);
+      await expect(strategy.validate({ sub: 'u1', email: 't@x.com', tokenType: 'access', jti: 'denied-jti' }))
+        .rejects.toThrow('Token has been revoked');
+      expect(users.findOne).not.toHaveBeenCalled();
     });
   });
 });

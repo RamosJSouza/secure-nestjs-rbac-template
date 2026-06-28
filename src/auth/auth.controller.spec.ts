@@ -9,6 +9,8 @@ describe('AuthController', () => {
   const mockAuthService = {
     login: jest.fn(),
     register: jest.fn(),
+    logout: jest.fn(),
+    logoutAll: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -81,6 +83,24 @@ describe('AuthController', () => {
 
       expect(mockAuthService.register).toHaveBeenCalledWith(registerDto);
       expect(result).toEqual(authResponse);
+    });
+  });
+
+  describe('logout', () => {
+    it('calls authService.logout with userId, jti and refresh_token', async () => {
+      mockAuthService.logout = jest.fn().mockResolvedValue(undefined);
+      const req: any = { user: { id: 'u1', jti: 'jti-1' } };
+      const res = await controller.logout(req, { refresh_token: 'rt' });
+      expect(mockAuthService.logout).toHaveBeenCalledWith('u1', 'jti-1', 'rt');
+      expect(res).toEqual({ message: 'Logged out' });
+    });
+
+    it('logoutAll calls authService.logoutAll with userId and jti', async () => {
+      mockAuthService.logoutAll = jest.fn().mockResolvedValue(undefined);
+      const req: any = { user: { id: 'u1', jti: 'jti-1' } };
+      const res = await controller.logoutAll(req);
+      expect(mockAuthService.logoutAll).toHaveBeenCalledWith('u1', 'jti-1');
+      expect(res).toEqual({ message: 'All sessions revoked' });
     });
   });
 });

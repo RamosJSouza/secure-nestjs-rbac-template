@@ -44,4 +44,7 @@ export class Session {
 
   @Column({ name: 'rotated_from_session_id', type: 'uuid', nullable: true })
   rotatedFromSessionId: string | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  jti: string | null;
 }

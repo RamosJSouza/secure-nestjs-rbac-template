@@ -16,6 +16,7 @@ import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { RefreshDto } from './dto/refresh.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { LogoutDto } from './dto/logout.dto';
 import { buildLoginThrottleKey } from './throttlers/login-throttle.util';
 import {
   ApiTags,
@@ -77,6 +78,39 @@ export class AuthController {
     const ip = req.ip ?? req.socket?.remoteAddress;
     const userAgent = req.get('user-agent');
     return this.authService.refresh(dto, ip, userAgent);
+  }
+
+  @Post('logout')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Logout',
+    description: 'Revokes the current session and denylists the access token.',
+  })
+  @ApiOkResponse({ description: 'Logged out' })
+  @ApiUnauthorizedResponse({ description: 'Authentication required' })
+  async logout(
+    @Req() req: Request & { user?: { id: string; jti?: string } },
+    @Body() dto: LogoutDto,
+  ) {
+    await this.authService.logout(req.user!.id, req.user!.jti!, dto.refresh_token);
+    return { message: 'Logged out' };
+  }
+
+  @Post('logout-all')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Logout all sessions',
+    description: 'Revokes all sessions for the user and denylists the access token.',
+  })
+  @ApiOkResponse({ description: 'All sessions revoked' })
+  @ApiUnauthorizedResponse({ description: 'Authentication required' })
+  async logoutAll(@Req() req: Request & { user?: { id: string; jti?: string } }) {
+    await this.authService.logoutAll(req.user!.id, req.user!.jti!);
+    return { message: 'All sessions revoked' };
   }
 
   @Post('register')
