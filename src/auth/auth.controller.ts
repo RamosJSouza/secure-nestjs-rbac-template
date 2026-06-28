@@ -8,12 +8,15 @@ import {
   UseGuards,
   UnauthorizedException,
 } from '@nestjs/common';
+import type { ExecutionContext } from '@nestjs/common';
 import { Request } from 'express';
+import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { RefreshDto } from './dto/refresh.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { buildLoginThrottleKey } from './throttlers/login-throttle.util';
 import {
   ApiTags,
   ApiOperation,
@@ -41,6 +44,18 @@ export class AuthController {
   })
   @ApiOkResponse({ description: 'Login successful, returns access_token and refresh_token' })
   @ApiBadRequestResponse({ description: 'Invalid email or password' })
+  @SkipThrottle({ default: true })
+  @Throttle({
+    login: {
+      limit: 10,
+      ttl: 60_000,
+      getTracker: (req: Record<string, any>) => req.ip ?? req.socket?.remoteAddress ?? '',
+      generateKey: (ctx: ExecutionContext, tracker: string) => {
+        const req = ctx.switchToHttp().getRequest();
+        return buildLoginThrottleKey(tracker, req.body?.email);
+      },
+    },
+  })
   async login(@Body() dto: LoginDto, @Req() req: Request) {
     const ip = req.ip ?? req.socket?.remoteAddress;
     const userAgent = req.get('user-agent');
