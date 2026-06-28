@@ -8,7 +8,7 @@ import { FeatureService } from 'src/modules/rbac/services/feature.service';
 
 describe('FeatureController (e2e)', () => {
     let app: INestApplication;
-    let mockFeatureService = {
+    const mockFeatureService = {
         findAll: jest.fn().mockResolvedValue({ data: [], total: 0 }),
         create: jest.fn().mockResolvedValue({ id: '1', key: 'test', name: 'Test' }),
     };

@@ -9,8 +9,6 @@ import { Session } from '@/modules/auth/entities/session.entity';
 
 describe('AuthService', () => {
   let service: AuthService;
-  let jwtService: JwtService;
-  let usersService: UsersService;
   let sessionRepo: any;
   let auditLogService: any;
 
@@ -51,8 +49,6 @@ describe('AuthService', () => {
     }).compile();
 
     service = module.get<AuthService>(AuthService);
-    jwtService = module.get<JwtService>(JwtService);
-    usersService = module.get<UsersService>(UsersService);
   });
 
   afterEach(() => jest.clearAllMocks());

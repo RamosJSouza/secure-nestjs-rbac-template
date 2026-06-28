@@ -1,4 +1,4 @@
-import { Test, TestingModule } from '@nestjs/testing';
+import { Test } from '@nestjs/testing';
 import { JwtService } from '@nestjs/jwt';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { AuthService } from './auth.service';
@@ -6,7 +6,6 @@ import { UsersService } from 'src/users/users.service';
 import { AuditLogService } from '@/modules/audit/audit-log.service';
 import { Session } from '@/modules/auth/entities/session.entity';
 import { JwtStrategy } from './strategy/jwt.strategy';
-import { ConfigService } from '@nestjs/config';
 
 describe('Token type separation (S1)', () => {
   describe('AuthService', () => {
