@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { In, Repository, EntityManager } from 'typeorm';
 import { createHash, timingSafeEqual, randomUUID } from 'crypto';
 import { compare, hash } from 'bcryptjs';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
@@ -49,11 +49,13 @@ export class AuthService {
     reusedSession: Session,
     ip?: string,
     userAgent?: string,
+    em?: EntityManager,
   ): Promise<void> {
     const userId = reusedSession.userId;
     const sessionFamilyIds = await this.getSessionFamilyIds(reusedSession);
 
-    const result = await this.sessionRepository
+    const repo = em ? em.getRepository(Session) : this.sessionRepository;
+    const result = await repo
       .createQueryBuilder()
       .update(Session)
       .set({ revokedAt: () => 'NOW()' })
@@ -180,7 +182,7 @@ export class AuthService {
       throw new UnauthorizedException('Refresh token required');
     }
 
-    let payload: { sub: string; email: string; roleId?: string; tokenType: 'access' | 'refresh'; exp: number };
+    let payload: { sub: string; email: string; roleId?: string; tokenType: 'access' | 'refresh'; jti?: string; exp: number };
     try {
       payload = this.jwtService.verify(token, { algorithms: ['RS256'] });
     } catch {
@@ -192,41 +194,71 @@ export class AuthService {
     }
 
     const tokenHash = this.hashRefreshToken(token);
-    const session = await this.sessionRepository.findOne({
-      where: { refreshTokenHash: tokenHash },
-      relations: ['user'],
-    });
 
-    if (!session) {
-      throw new UnauthorizedException('Invalid refresh token');
-    }
+    return this.sessionRepository.manager.transaction(async (em) => {
+      const session = await em.findOne(Session, {
+        where: { refreshTokenHash: tokenHash },
+        relations: ['user'],
+        lock: { mode: 'pessimistic_write' },
+      });
 
-    if (!this.constantTimeCompare(tokenHash, session.refreshTokenHash)) {
-      throw new UnauthorizedException('Invalid refresh token');
-    }
+      if (!session) {
+        throw new UnauthorizedException('Invalid refresh token');
+      }
+      if (!this.constantTimeCompare(tokenHash, session.refreshTokenHash)) {
+        throw new UnauthorizedException('Invalid refresh token');
+      }
 
-    const now = new Date();
-    if (session.revokedAt) {
-      await this.revokeSessionFamilyAndLogReuse(session, ip, userAgent);
-      throw new UnauthorizedException('Refresh token reuse detected. All sessions have been revoked.');
-    }
+      const now = new Date();
+      if (session.revokedAt) {
+        await this.revokeSessionFamilyAndLogReuse(session, ip, userAgent, em);
+        throw new UnauthorizedException('Refresh token reuse detected. All sessions have been revoked.');
+      }
+      if (session.expiresAt < now) {
+        throw new UnauthorizedException('Refresh token expired');
+      }
 
-    if (session.expiresAt < now) {
-      throw new UnauthorizedException('Refresh token expired');
-    }
+      const user = session.user;
+      if (!user.isActive) {
+        throw new UnauthorizedException('User account is deactivated');
+      }
+      if (user.lockedUntil && user.lockedUntil > now) {
+        throw new UnauthorizedException(
+          `Account locked due to too many failed attempts. Try again after ${user.lockedUntil.toISOString()}`,
+        );
+      }
 
-    const user = session.user;
-    const lockNow = new Date();
-    if (user.lockedUntil && user.lockedUntil > lockNow) {
-      throw new UnauthorizedException(
-        `Account locked due to too many failed attempts. Try again after ${user.lockedUntil.toISOString()}`,
+      session.revokedAt = new Date();
+      await em.save(session);
+
+      const basePayload = { sub: user.id, email: user.email, roleId: user.roleId };
+      const accessJti = randomUUID();
+      const refreshJti = randomUUID();
+      const accessToken = this.jwtService.sign(
+        { ...basePayload, tokenType: 'access', jti: accessJti },
+        { expiresIn: ACCESS_TOKEN_EXPIRES, algorithm: 'RS256' },
       );
-    }
-    if (!user.isActive) {
-      throw new UnauthorizedException('User account is deactivated');
-    }
+      const refreshToken = this.jwtService.sign(
+        { ...basePayload, tokenType: 'refresh', jti: refreshJti },
+        { expiresIn: REFRESH_TOKEN_EXPIRES, algorithm: 'RS256' },
+      );
+      const newHash = this.hashRefreshToken(refreshToken);
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + 7);
 
-    return this.rotateSession(session, user, ip, userAgent);
+      const newSession = em.create(Session, {
+        userId: user.id,
+        refreshTokenHash: newHash,
+        ip: ip ?? null,
+        userAgent: userAgent ?? null,
+        expiresAt,
+        jti: refreshJti,
+        rotatedFromSessionId: session.id,
+      });
+      await em.save(newSession);
+
+      return { email: user.email, access_token: accessToken, refresh_token: refreshToken };
+    });
   }
 
   private async createTokensAndSession(
@@ -267,57 +299,6 @@ export class AuthService {
       jti: refreshJti,
     });
     await this.sessionRepository.save(session);
-
-    return {
-      email: user.email,
-      access_token: accessToken,
-      refresh_token: refreshToken,
-    };
-  }
-
-  private async rotateSession(
-    oldSession: Session,
-    user: User,
-    ip?: string,
-    userAgent?: string,
-  ): Promise<{ email: string; access_token: string; refresh_token: string }> {
-    oldSession.revokedAt = new Date();
-    await this.sessionRepository.save(oldSession);
-
-    const payload = { sub: user.id, email: user.email, roleId: user.roleId };
-    const accessJti = randomUUID();
-    const refreshJti = randomUUID();
-
-    const accessToken = this.jwtService.sign(
-      { ...payload, tokenType: 'access', jti: accessJti },
-      {
-        expiresIn: ACCESS_TOKEN_EXPIRES,
-        algorithm: 'RS256',
-      },
-    );
-
-    const refreshToken = this.jwtService.sign(
-      { ...payload, tokenType: 'refresh', jti: refreshJti },
-      {
-        expiresIn: REFRESH_TOKEN_EXPIRES,
-        algorithm: 'RS256',
-      },
-    );
-
-    const refreshTokenHash = this.hashRefreshToken(refreshToken);
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 7);
-
-    const newSession = this.sessionRepository.create({
-      userId: user.id,
-      refreshTokenHash,
-      ip: ip ?? null,
-      userAgent: userAgent ?? null,
-      expiresAt,
-      rotatedFromSessionId: oldSession.id,
-      jti: refreshJti,
-    });
-    await this.sessionRepository.save(newSession);
 
     return {
       email: user.email,

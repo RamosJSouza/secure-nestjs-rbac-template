@@ -187,7 +187,7 @@ describe('AuthService', () => {
         tokenType: 'refresh',
         exp: Math.floor(Date.now() / 1000) + 3600,
       });
-      sessionRepo.findOne.mockResolvedValue({
+      const emFindOne = jest.fn().mockResolvedValue({
         id: 's1',
         userId: 'u1',
         refreshTokenHash: 'hash',
@@ -195,11 +195,50 @@ describe('AuthService', () => {
         expiresAt: new Date(Date.now() + 60000),
         user: lockedUser,
       });
+      const txMock = jest.fn(async (cb: any) => cb({
+        findOne: emFindOne,
+        save: jest.fn().mockResolvedValue(undefined),
+        create: jest.fn((_: any, d: any) => d),
+      }));
+      (sessionRepo as any).manager = { transaction: txMock };
       jest.spyOn(service as any, 'hashRefreshToken').mockReturnValue('hash');
       jest.spyOn(service as any, 'constantTimeCompare').mockReturnValue(true);
       await expect(service.refresh({ refresh_token: 't' })).rejects.toThrow(
         'Account locked due to too many failed attempts',
       );
+    });
+
+    it('rotates the session inside a transaction with a pessimistic_write lock', async () => {
+      mockJwtService.verify.mockReturnValue({
+        sub: 'u1', email: 't@x.com', tokenType: 'refresh', jti: 'rjti', exp: Math.floor(Date.now() / 1000) + 3600,
+      });
+      const lockedSession = {
+        id: 's1', userId: 'u1', refreshTokenHash: 'hash', revokedAt: null,
+        expiresAt: new Date(Date.now() + 60000),
+        user: { id: 'u1', email: 't@x.com', roleId: 'r', isActive: true, lockedUntil: null },
+      };
+      const emFindOne = jest.fn().mockResolvedValue(lockedSession);
+      const emSave = jest.fn().mockResolvedValue(undefined);
+      const emCreate = jest.fn((_target: any, data: any) => data);
+      const txMock = jest.fn(async (cb: any) => cb({
+        findOne: emFindOne,
+        save: emSave,
+        create: emCreate,
+        getRepository: () => ({ create: emCreate, save: emSave }),
+      }));
+      (sessionRepo as any).manager = { transaction: txMock };
+      jest.spyOn(service as any, 'hashRefreshToken').mockReturnValue('hash');
+      jest.spyOn(service as any, 'constantTimeCompare').mockReturnValue(true);
+      mockJwtService.sign.mockReturnValue('tok');
+
+      await service.refresh({ refresh_token: 't' });
+
+      expect(txMock).toHaveBeenCalled();
+      expect(emFindOne).toHaveBeenCalledWith(
+        Session,
+        expect.objectContaining({ where: { refreshTokenHash: 'hash' }, lock: { mode: 'pessimistic_write' } }),
+      );
+      expect(emSave).toHaveBeenCalledTimes(2); // revoke old + create new
     });
   });
 
