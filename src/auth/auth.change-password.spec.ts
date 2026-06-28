@@ -6,6 +6,7 @@ import { AuthService } from './auth.service';
 import { UsersService } from 'src/users/users.service';
 import { AuditLogService } from '@/modules/audit/audit-log.service';
 import { Session } from '@/modules/auth/entities/session.entity';
+import { Role } from '@/modules/rbac/entities/role.entity';
 
 describe('changePassword (S2)', () => {
   let service: AuthService;
@@ -33,6 +34,7 @@ describe('changePassword (S2)', () => {
         { provide: UsersService, useValue: users },
         { provide: AuditLogService, useValue: { log: jest.fn() } },
         { provide: getRepositoryToken(Session), useValue: sessionRepo },
+        { provide: getRepositoryToken(Role), useValue: { findOne: jest.fn().mockResolvedValue({ id: 'viewer-role-uuid' }) } },
       ],
     }).compile();
     service = module.get(AuthService);

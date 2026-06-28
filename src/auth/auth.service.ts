@@ -2,6 +2,7 @@ import {
   Injectable,
   UnauthorizedException,
   ConflictException,
+  InternalServerErrorException,
   Logger,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
@@ -15,6 +16,7 @@ import { RegisterDto } from './dto/register.dto';
 import { RefreshDto } from './dto/refresh.dto';
 import { Session } from '@/modules/auth/entities/session.entity';
 import { User } from '@/modules/rbac/entities/user.entity';
+import { Role } from '@/modules/rbac/entities/role.entity';
 import { AuditLogService } from '@/modules/audit/audit-log.service';
 
 const ACCESS_TOKEN_EXPIRES = '15m';
@@ -30,6 +32,8 @@ export class AuthService {
     private auditLogService: AuditLogService,
     @InjectRepository(Session)
     private sessionRepository: Repository<Session>,
+    @InjectRepository(Role)
+    private roleRepository: Repository<Role>,
   ) {}
 
   private hashRefreshToken(token: string): string {
@@ -317,12 +321,22 @@ export class AuthService {
       throw new ConflictException('User already exists');
     }
 
+    let roleId = dto.roleId;
+    if (!roleId) {
+      const defaultRole = await this.roleRepository.findOne({ where: { name: 'Viewer' } });
+      if (!defaultRole) {
+        throw new InternalServerErrorException('Default role "Viewer" not found');
+      }
+      roleId = defaultRole.id;
+    }
+
     const hashedPassword = await hash(dto.password, 12);
 
     const user = await this.usersService.create({
       email: dto.email,
       name: dto.name,
       password: hashedPassword,
+      roleId,
     });
 
     return { message: 'User created with success', userId: user.id };

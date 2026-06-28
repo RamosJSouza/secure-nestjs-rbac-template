@@ -6,6 +6,7 @@ import { AuthService } from './auth.service';
 import { UsersService } from 'src/users/users.service';
 import { AuditLogService } from '@/modules/audit/audit-log.service';
 import { Session } from '@/modules/auth/entities/session.entity';
+import { Role } from '@/modules/rbac/entities/role.entity';
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -48,6 +49,7 @@ describe('AuthService', () => {
         { provide: UsersService, useValue: mockUsersService },
         { provide: AuditLogService, useValue: auditLogService },
         { provide: getRepositoryToken(Session), useValue: sessionRepo },
+        { provide: getRepositoryToken(Role), useValue: { findOne: jest.fn().mockResolvedValue({ id: 'viewer-role-uuid' }) } },
       ],
     }).compile();
 
@@ -143,6 +145,7 @@ describe('AuthService', () => {
         id: 'new-uuid',
         ...registerDto,
         password: 'hashed',
+        roleId: 'viewer-role-uuid',
       });
       const bcryptjs = await import('bcryptjs');
       jest.spyOn(bcryptjs, 'hash').mockResolvedValue('hashed' as never);
@@ -155,6 +158,7 @@ describe('AuthService', () => {
         email: registerDto.email,
         name: registerDto.name,
         password: 'hashed',
+        roleId: 'viewer-role-uuid',
       });
     });
 
