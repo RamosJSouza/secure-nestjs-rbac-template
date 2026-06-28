@@ -45,8 +45,6 @@ describe('AppModule e2e (I3)', () => {
         .toString();
     }
 
-    // Import config + AppModule AFTER env is set so database.ts evaluates with the
-    // Testcontainers connection params (it reads process.env at module load).
     const { dataSourceOptions } = await import('../src/config/database');
     const { AppModule } = await import('../src/app.module');
 

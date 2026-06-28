@@ -5,7 +5,21 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { User } from 'src/modules/rbac/entities/user.entity';
 
 const LOCKOUT_THRESHOLD = 5;
-const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 minutes
+const LOCKOUT_DURATION_MS = 15 * 60 * 1000;
+
+const WITH_PASSWORD_SELECT = {
+  id: true,
+  email: true,
+  name: true,
+  password: true,
+  roleId: true,
+  isActive: true,
+  lockedUntil: true,
+  failedLoginAttempts: true,
+  createdAt: true,
+  updatedAt: true,
+  deletedAt: true,
+} as const;
 
 @Injectable()
 export class UsersService {
@@ -35,19 +49,7 @@ export class UsersService {
   findOneWithPassword(email: string): Promise<User | null> {
     return this.usersRepository.findOne({
       where: { email },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        password: true,
-        roleId: true,
-        isActive: true,
-        lockedUntil: true,
-        failedLoginAttempts: true,
-        createdAt: true,
-        updatedAt: true,
-        deletedAt: true,
-      },
+      select: WITH_PASSWORD_SELECT,
     });
   }
 
@@ -60,19 +62,7 @@ export class UsersService {
   findByIdWithPassword(id: string): Promise<User | null> {
     return this.usersRepository.findOne({
       where: { id },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        password: true,
-        roleId: true,
-        isActive: true,
-        lockedUntil: true,
-        failedLoginAttempts: true,
-        createdAt: true,
-        updatedAt: true,
-        deletedAt: true,
-      },
+      select: WITH_PASSWORD_SELECT,
     });
   }
 

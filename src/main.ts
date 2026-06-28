@@ -18,7 +18,7 @@ async function bootstrap() {
     app.use(helmet());
 
     app.enableCors({
-      origin: configService.get('ALLOWED_ORIGINS', '').split(','), // Ex: https://admin.example.com
+      origin: configService.get('ALLOWED_ORIGINS', '').split(','),
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
       credentials: true,
       allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Correlation-Id'],

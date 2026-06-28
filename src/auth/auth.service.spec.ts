@@ -238,7 +238,7 @@ describe('AuthService', () => {
         Session,
         expect.objectContaining({ where: { refreshTokenHash: 'hash' }, lock: { mode: 'pessimistic_write' } }),
       );
-      expect(emSave).toHaveBeenCalledTimes(2); // revoke old + create new
+      expect(emSave).toHaveBeenCalledTimes(2);
     });
   });
 

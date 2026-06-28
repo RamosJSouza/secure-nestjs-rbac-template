@@ -112,11 +112,7 @@ export class RoleService {
     }
 
     async assignPermissions(roleId: string, dto: AssignPermissionsDto, currentUserId?: string): Promise<void> {
-        const role = await this.findOne(roleId);
-
-        if (role.name === 'Super Admin') {
-            // In a real system, you might restrict this even further
-        }
+        await this.findOne(roleId);
 
         const queryRunner = this.dataSource.createQueryRunner();
         await queryRunner.connect();

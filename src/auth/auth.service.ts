@@ -47,14 +47,14 @@ export class AuthService {
 
   private async revokeSessionFamilyAndLogReuse(
     reusedSession: Session,
+    em: EntityManager,
     ip?: string,
     userAgent?: string,
-    em?: EntityManager,
   ): Promise<void> {
     const userId = reusedSession.userId;
     const sessionFamilyIds = await this.getSessionFamilyIds(reusedSession);
 
-    const repo = em ? em.getRepository(Session) : this.sessionRepository;
+    const repo = em.getRepository(Session);
     const result = await repo
       .createQueryBuilder()
       .update(Session)
@@ -211,7 +211,7 @@ export class AuthService {
 
       const now = new Date();
       if (session.revokedAt) {
-        await this.revokeSessionFamilyAndLogReuse(session, ip, userAgent, em);
+        await this.revokeSessionFamilyAndLogReuse(session, em, ip, userAgent);
         throw new UnauthorizedException('Refresh token reuse detected. All sessions have been revoked.');
       }
       if (session.expiresAt < now) {
@@ -366,7 +366,7 @@ export class AuthService {
     return { userId };
   }
 
-  async logout(userId: string, accessJti: string, refreshToken?: string): Promise<void> {
+  async logout(userId: string, accessJti: string | undefined, refreshToken?: string): Promise<void> {
     if (accessJti) {
       await this.cacheManager.set(`jti:${accessJti}`, 1, ACCESS_TOKEN_EXPIRES_MS);
     }
@@ -380,7 +380,7 @@ export class AuthService {
     }
   }
 
-  async logoutAll(userId: string, accessJti: string): Promise<void> {
+  async logoutAll(userId: string, accessJti: string | undefined): Promise<void> {
     if (accessJti) {
       await this.cacheManager.set(`jti:${accessJti}`, 1, ACCESS_TOKEN_EXPIRES_MS);
     }

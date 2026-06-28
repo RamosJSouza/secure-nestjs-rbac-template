@@ -94,7 +94,7 @@ export class AuthController {
     @Req() req: Request & { user?: { id: string; jti?: string } },
     @Body() dto: LogoutDto,
   ) {
-    await this.authService.logout(req.user!.id, req.user!.jti!, dto.refresh_token);
+    await this.authService.logout(req.user!.id, req.user?.jti, dto.refresh_token);
     return { message: 'Logged out' };
   }
 
@@ -109,7 +109,7 @@ export class AuthController {
   @ApiOkResponse({ description: 'All sessions revoked' })
   @ApiUnauthorizedResponse({ description: 'Authentication required' })
   async logoutAll(@Req() req: Request & { user?: { id: string; jti?: string } }) {
-    await this.authService.logoutAll(req.user!.id, req.user!.jti!);
+    await this.authService.logoutAll(req.user!.id, req.user?.jti);
     return { message: 'All sessions revoked' };
   }
 
