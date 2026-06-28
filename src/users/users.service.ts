@@ -44,6 +44,9 @@ export class UsersService {
         isActive: true,
         lockedUntil: true,
         failedLoginAttempts: true,
+        createdAt: true,
+        updatedAt: true,
+        deletedAt: true,
       },
     });
   }
@@ -66,6 +69,9 @@ export class UsersService {
         isActive: true,
         lockedUntil: true,
         failedLoginAttempts: true,
+        createdAt: true,
+        updatedAt: true,
+        deletedAt: true,
       },
     });
   }
