@@ -98,8 +98,6 @@ export class AuthController {
   ) {
     const userId = req.user?.id;
     if (!userId) throw new UnauthorizedException('User not authenticated');
-    const ip = req.ip ?? req.socket?.remoteAddress;
-    const userAgent = req.get('user-agent');
-    return this.authService.changePassword(userId, dto.newPassword, ip, userAgent);
+    return this.authService.changePassword(userId, dto.currentPassword, dto.newPassword);
   }
 }

@@ -12,8 +12,10 @@ import { GracefulShutdownModule } from './graceful-shutdown/graceful-shutdown.mo
 import { LoggerModule } from './logger/logger.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { CacheModule } from '@nestjs/cache-manager';
 import configuration from './config';
 import { validationSchema } from './config/validation.schema';
+import { buildCacheStoresOptions } from './config/cache-stores.factory';
 
 @Module({
   imports: [
@@ -32,6 +34,11 @@ import { validationSchema } from './config/validation.schema';
       inject: [ConfigService],
     }),
     ScheduleModule.forRoot(),
+    CacheModule.registerAsync({
+      isGlobal: true,
+      inject: [ConfigService],
+      useFactory: buildCacheStoresOptions,
+    }),
     RbacModule,
     OrganizationsModule,
     AuditModule,

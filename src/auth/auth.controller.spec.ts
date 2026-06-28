@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { RbacService } from '@/modules/rbac/services/rbac.service';
 
 describe('AuthController', () => {
   let controller: AuthController;
@@ -18,6 +19,10 @@ describe('AuthController', () => {
         {
           provide: AuthService,
           useValue: mockAuthService,
+        },
+        {
+          provide: RbacService,
+          useValue: { checkPermissions: jest.fn().mockResolvedValue(true) },
         },
       ],
     }).compile();
@@ -48,9 +53,14 @@ describe('AuthController', () => {
 
       mockAuthService.login.mockResolvedValue(authResponse);
 
-      const result = await controller.login(loginDto);
+      const mockReq: any = {
+        ip: '127.0.0.1',
+        socket: { remoteAddress: '127.0.0.1' },
+        get: jest.fn().mockReturnValue('test-agent'),
+      };
+      const result = await controller.login(loginDto, mockReq);
 
-      expect(mockAuthService.login).toHaveBeenCalledWith(loginDto);
+      expect(mockAuthService.login).toHaveBeenCalledWith(loginDto, '127.0.0.1', 'test-agent');
       expect(result).toEqual(authResponse);
     });
   });

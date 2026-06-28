@@ -1,36 +1,52 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { JwtService } from '@nestjs/jwt';
+import { getRepositoryToken } from '@nestjs/typeorm';
 import { UnauthorizedException, ConflictException } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { UsersService } from 'src/users/users.service';
+import { AuditLogService } from '@/modules/audit/audit-log.service';
+import { Session } from '@/modules/auth/entities/session.entity';
 
 describe('AuthService', () => {
   let service: AuthService;
   let jwtService: JwtService;
   let usersService: UsersService;
+  let sessionRepo: any;
+  let auditLogService: any;
 
-  const mockJwtService = {
-    sign: jest.fn(),
-  };
-
+  const mockJwtService = { sign: jest.fn(), verify: jest.fn() };
   const mockUsersService = {
     findOne: jest.fn(),
     create: jest.fn(),
     updatePassword: jest.fn().mockResolvedValue(undefined),
+    resetFailedLogin: jest.fn().mockResolvedValue(undefined),
+    recordFailedLogin: jest.fn(),
   };
 
   beforeEach(async () => {
+    sessionRepo = {
+      findOne: jest.fn(),
+      save: jest.fn(),
+      create: jest.fn((x) => x),
+      createQueryBuilder: jest.fn(() => ({
+        update: jest.fn(() => ({
+          set: jest.fn(() => ({
+            where: jest.fn(() => ({
+              execute: jest.fn().mockResolvedValue({ affected: 0 }),
+            })),
+          })),
+        })),
+      })),
+    };
+    auditLogService = { log: jest.fn().mockResolvedValue(undefined) };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthService,
-        {
-          provide: JwtService,
-          useValue: mockJwtService,
-        },
-        {
-          provide: UsersService,
-          useValue: mockUsersService,
-        },
+        { provide: JwtService, useValue: mockJwtService },
+        { provide: UsersService, useValue: mockUsersService },
+        { provide: AuditLogService, useValue: auditLogService },
+        { provide: getRepositoryToken(Session), useValue: sessionRepo },
       ],
     }).compile();
 
@@ -39,115 +55,98 @@ describe('AuthService', () => {
     usersService = module.get<UsersService>(UsersService);
   });
 
-  afterEach(() => {
-    jest.clearAllMocks();
-  });
+  afterEach(() => jest.clearAllMocks());
 
-  it('should be defined', () => {
-    expect(service).toBeDefined();
-  });
+  it('should be defined', () => expect(service).toBeDefined());
 
   describe('login', () => {
     it('should return access token for valid credentials', async () => {
-      const loginDto = {
-        email: 'test@example.com',
-        password: 'password123',
-      };
-
-      const hashedPassword = '$2b$10$abcdefghijklmnopqrstuvwxyz';
+      const loginDto = { email: 'test@example.com', password: 'password123' };
       const mockUser = {
         id: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
         email: 'test@example.com',
-        password: hashedPassword,
+        password: '$2b$10$abc',
         name: 'Test User',
         roleId: 'role-uuid',
         isActive: true,
       };
-
       mockUsersService.findOne.mockResolvedValue(mockUser);
-      mockJwtService.sign.mockReturnValue('mock-jwt-token');
+      mockJwtService.sign.mockReturnValue('mock-jwt');
 
-      const bcryptjs = require('bcryptjs');
+      const bcryptjs = await import('bcryptjs');
       jest.spyOn(bcryptjs, 'compareSync').mockReturnValue(true);
 
       const result = await service.login(loginDto);
 
       expect(result).toHaveProperty('access_token');
       expect(result.email).toBe(loginDto.email);
-      expect(mockJwtService.sign).toHaveBeenCalledWith({
-        sub: mockUser.id,
-        email: mockUser.email,
-        roleId: mockUser.roleId,
-      });
+      expect(mockJwtService.sign).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sub: mockUser.id,
+          email: mockUser.email,
+          roleId: mockUser.roleId,
+          tokenType: 'access',
+        }),
+        expect.objectContaining({ algorithm: 'RS256' }),
+      );
     });
 
     it('should throw UnauthorizedException for invalid user', async () => {
-      const loginDto = {
-        email: 'nonexistent@example.com',
-        password: 'password123',
-      };
-
       mockUsersService.findOne.mockResolvedValue(null);
-
-      await expect(service.login(loginDto)).rejects.toThrow(UnauthorizedException);
+      await expect(
+        service.login({ email: 'nope@x.com', password: 'p' }),
+      ).rejects.toThrow(UnauthorizedException);
     });
 
     it('should throw UnauthorizedException for inactive user', async () => {
-      const loginDto = {
-        email: 'test@example.com',
-        password: 'password123',
-      };
-
       mockUsersService.findOne.mockResolvedValue({
         id: 'uuid',
         email: 'test@example.com',
         password: 'hashedpassword',
+        name: 'Test User',
         isActive: false,
       });
-
-      await expect(service.login(loginDto)).rejects.toThrow(UnauthorizedException);
+      await expect(
+        service.login({ email: 'test@example.com', password: 'password123' }),
+      ).rejects.toThrow(UnauthorizedException);
     });
 
     it('should throw UnauthorizedException for invalid password', async () => {
-      const loginDto = {
-        email: 'test@example.com',
-        password: 'wrongpassword',
-      };
-
       const mockUser = {
-        id: 'uuid',
-        email: 'test@example.com',
-        password: 'hashedpassword',
-        name: 'Test User',
+        id: 'u',
+        email: 't@x.com',
+        password: 'h',
+        name: 'T',
         isActive: true,
       };
-
       mockUsersService.findOne.mockResolvedValue(mockUser);
-
-      const bcryptjs = require('bcryptjs');
+      const bcryptjs = await import('bcryptjs');
       jest.spyOn(bcryptjs, 'compareSync').mockReturnValue(false);
-
-      await expect(service.login(loginDto)).rejects.toThrow(UnauthorizedException);
+      mockUsersService.recordFailedLogin.mockResolvedValue({
+        failedLoginAttempts: 1,
+        lockedUntil: null,
+      });
+      await expect(
+        service.login({ email: 't@x.com', password: 'wrong' }),
+      ).rejects.toThrow(UnauthorizedException);
     });
   });
 
   describe('register', () => {
     it('should create user successfully', async () => {
       const registerDto = {
-        email: 'newuser@example.com',
-        name: 'New User',
+        email: 'new@x.com',
+        name: 'New',
         password: 'password123',
       };
-
       mockUsersService.findOne.mockResolvedValue(null);
       mockUsersService.create.mockResolvedValue({
         id: 'new-uuid',
         ...registerDto,
-        password: 'hashedpassword',
+        password: 'hashed',
       });
-
-      const bcryptjs = require('bcryptjs');
-      jest.spyOn(bcryptjs, 'hashSync').mockReturnValue('hashedpassword');
+      const bcryptjs = await import('bcryptjs');
+      jest.spyOn(bcryptjs, 'hashSync').mockReturnValue('hashed');
 
       const result = await service.register(registerDto);
 
@@ -156,20 +155,15 @@ describe('AuthService', () => {
       expect(mockUsersService.create).toHaveBeenCalledWith({
         email: registerDto.email,
         name: registerDto.name,
-        password: 'hashedpassword',
+        password: 'hashed',
       });
     });
 
     it('should throw ConflictException for existing user', async () => {
-      const registerDto = {
-        email: 'existing@example.com',
-        name: 'Existing User',
-        password: 'password123',
-      };
-
-      mockUsersService.findOne.mockResolvedValue({ id: 'uuid', email: registerDto.email });
-
-      await expect(service.register(registerDto)).rejects.toThrow(ConflictException);
+      mockUsersService.findOne.mockResolvedValue({ id: 'uuid', email: 'e@x.com' });
+      await expect(
+        service.register({ email: 'e@x.com', name: 'E', password: 'p' }),
+      ).rejects.toThrow(ConflictException);
     });
   });
 });
