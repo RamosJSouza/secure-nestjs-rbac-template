@@ -11,6 +11,7 @@ describe('changePassword (S2)', () => {
   let service: AuthService;
   let users: any;
   let bcryptjs: any;
+  let executeMock: jest.Mock;
 
   beforeEach(async () => {
     users = {
@@ -18,9 +19,10 @@ describe('changePassword (S2)', () => {
       findOne: jest.fn().mockResolvedValue({ id: 'u1', email: 't@x.com', password: '$2b$10$oldhash', isActive: true }),
       updatePassword: jest.fn().mockResolvedValue(undefined),
     };
+    executeMock = jest.fn().mockResolvedValue({ affected: 1 });
     const sessionRepo: any = {
       createQueryBuilder: jest.fn(() => ({
-        update: jest.fn(() => ({ set: jest.fn(() => ({ where: jest.fn(() => ({ execute: jest.fn().mockResolvedValue({ affected: 1 }) })) })) })),
+        update: jest.fn(() => ({ set: jest.fn(() => ({ where: jest.fn(() => ({ execute: executeMock })) })) })),
       })),
     };
     const module = await Test.createTestingModule({
@@ -49,5 +51,6 @@ describe('changePassword (S2)', () => {
     const res = await service.changePassword('u1', 'correct-current', 'NewPass123!');
     expect(res).toEqual({ userId: 'u1' });
     expect(users.updatePassword).toHaveBeenCalledWith('u1', 'newhash');
+    expect(executeMock).toHaveBeenCalled();
   });
 });

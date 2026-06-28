@@ -353,16 +353,6 @@ export class AuthService {
       `Password changed for user ${userId}. Revoked ${result.affected ?? 0} active sessions.`,
     );
 
-    await this.auditLogService.log({
-      action: 'auth.password_change',
-      entityType: 'User',
-      entityId: userId,
-      actorUserId: userId,
-      metadata: { revokedSessionCount: result.affected ?? 0 },
-      ip: ip ?? undefined,
-      userAgent: userAgent ?? undefined,
-    });
-
     return { userId };
   }
 }
