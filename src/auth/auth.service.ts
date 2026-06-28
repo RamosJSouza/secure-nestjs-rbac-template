@@ -8,7 +8,7 @@ import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { createHash, timingSafeEqual } from 'crypto';
-import { compareSync, hashSync } from 'bcryptjs';
+import { compareSync, hashSync, compare, hash } from 'bcryptjs';
 import { UsersService } from 'src/users/users.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
@@ -324,11 +324,22 @@ export class AuthService {
 
   async changePassword(
     userId: string,
+    currentPassword: string,
     newPassword: string,
     ip?: string,
     userAgent?: string,
   ): Promise<{ userId: string }> {
-    const hashedPassword = hashSync(newPassword, 10);
+    const user = await this.usersService.findById(userId);
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    const isCurrentValid = await compare(currentPassword, user.password);
+    if (!isCurrentValid) {
+      throw new UnauthorizedException('Current password is incorrect');
+    }
+
+    const hashedPassword = await hash(newPassword, 12);
     await this.usersService.updatePassword(userId, hashedPassword);
 
     const result = await this.sessionRepository
@@ -341,6 +352,16 @@ export class AuthService {
     this.logger.log(
       `Password changed for user ${userId}. Revoked ${result.affected ?? 0} active sessions.`,
     );
+
+    await this.auditLogService.log({
+      action: 'auth.password_change',
+      entityType: 'User',
+      entityId: userId,
+      actorUserId: userId,
+      metadata: { revokedSessionCount: result.affected ?? 0 },
+      ip: ip ?? undefined,
+      userAgent: userAgent ?? undefined,
+    });
 
     return { userId };
   }
