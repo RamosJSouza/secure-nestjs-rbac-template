@@ -1,8 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { RbacService } from './modules/rbac/services/rbac.service';
-import { Reflector } from '@nestjs/core';
 
 describe('AppController', () => {
   let appController: AppController;
@@ -10,10 +8,6 @@ describe('AppController', () => {
 
   const mockAppService = {
     getHello: jest.fn(),
-  };
-
-  const mockRbacService = {
-    checkPermissions: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -24,11 +18,6 @@ describe('AppController', () => {
           provide: AppService,
           useValue: mockAppService,
         },
-        {
-          provide: RbacService,
-          useValue: mockRbacService,
-        },
-        Reflector,
       ],
     }).compile();
 
