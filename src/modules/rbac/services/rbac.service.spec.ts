@@ -132,5 +132,23 @@ describe('RbacService', () => {
         it('should not throw when no role has been cached', async () => {
             await expect(service.invalidateAllRoles()).resolves.toBeUndefined();
         });
+
+        it('does not cache stale data when a mutation invalidates during an in-flight fetch', async () => {
+            let resolveFind: (v: any) => void = () => {};
+            mockCacheManager.get.mockResolvedValue(null);
+            mockRepository.find.mockReturnValue(
+                new Promise((resolve) => { resolveFind = resolve; }),
+            );
+
+            const pending = service.getPermissionsForRole('role-x');
+            await Promise.resolve();
+
+            await service.invalidateAllRoles();
+
+            resolveFind([{ permission: { action: 'view', feature: { key: 'test' } } }]);
+            await pending;
+
+            expect(mockCacheManager.set).not.toHaveBeenCalled();
+        });
     });
 });

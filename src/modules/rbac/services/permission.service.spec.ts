@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import { NotFoundException } from '@nestjs/common';
 import { PermissionService } from './permission.service';
 import { Permission } from '../entities/permission.entity';
 import { RbacService } from './rbac.service';
@@ -74,6 +75,14 @@ describe('PermissionService', () => {
         await service.update('1', { name: 'Updated' });
 
         expect(mockRbacService.invalidateAllRoles).toHaveBeenCalledTimes(1);
+    });
+
+    it('should not invalidate caches when permission update targets a missing permission', async () => {
+        mockPermissionRepo.update.mockResolvedValue({ affected: 0 });
+
+        await expect(service.update('1', { name: 'Updated' })).rejects.toThrow(NotFoundException);
+
+        expect(mockRbacService.invalidateAllRoles).not.toHaveBeenCalled();
     });
 
     it('should invalidate all role caches after removing a permission', async () => {

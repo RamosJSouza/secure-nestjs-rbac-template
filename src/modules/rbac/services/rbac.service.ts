@@ -12,6 +12,7 @@ export class RbacService {
     private readonly ttl: number;
     private readonly pendingRequests = new Map<string, Promise<string[]>>();
     private readonly cachedRoleKeys = new Set<string>();
+    private invalidationEpoch = 0;
 
     constructor(
         @InjectRepository(RolePermission)
@@ -58,6 +59,7 @@ export class RbacService {
         }
 
         const fetchPromise = (async () => {
+            const epoch = this.invalidationEpoch;
             try {
                 const rolePermissions = await this.rolePermissionRepository.find({
                     where: { roleId },
@@ -79,10 +81,12 @@ export class RbacService {
                     (rp) => `${rp.permission.feature.key}:${rp.permission.action}`,
                 );
 
-                this.cacheManager.set(cacheKey, permissions, this.ttl).catch(err => {
-                    this.logger.warn(`Redis cache set failed for ${cacheKey}`, err.message);
-                });
-                this.cachedRoleKeys.add(cacheKey);
+                if (epoch === this.invalidationEpoch) {
+                    this.cacheManager.set(cacheKey, permissions, this.ttl).catch(err => {
+                        this.logger.warn(`Redis cache set failed for ${cacheKey}`, err.message);
+                    });
+                    this.cachedRoleKeys.add(cacheKey);
+                }
 
                 return permissions;
             } finally {
@@ -96,6 +100,7 @@ export class RbacService {
 
     async invalidateRoleCache(roleId: string): Promise<void> {
         const cacheKey = `rbac:role:${roleId}:permissions`;
+        this.invalidationEpoch++;
         this.pendingRequests.delete(cacheKey);
 
         try {
@@ -116,6 +121,7 @@ export class RbacService {
      * Never throws — failures are logged so a successful mutation is not turned into a 500.
      */
     async invalidateAllRoles(): Promise<void> {
+        this.invalidationEpoch++;
         const keys = Array.from(this.cachedRoleKeys);
 
         for (const cacheKey of keys) {
@@ -128,6 +134,8 @@ export class RbacService {
         }
 
         this.cachedRoleKeys.clear();
-        this.logger.log(`Invalidated cache for all roles (${keys.length} keys)`);
+        if (keys.length > 0) {
+            this.logger.log(`Invalidated cache for all roles (${keys.length} keys)`);
+        }
     }
 }
