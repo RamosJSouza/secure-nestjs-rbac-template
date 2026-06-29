@@ -18,6 +18,8 @@ import configuration from './config';
 import { validationSchema } from './config/validation.schema';
 import { buildCacheStoresOptions } from './config/cache-stores.factory';
 import { OptionalBullModule } from './config/optional-bull.module';
+import { ScheduleModule } from '@nestjs/schedule';
+import { MaintenanceModule } from './modules/maintenance/maintenance.module';
 
 @Module({
   imports: [
@@ -45,6 +47,8 @@ import { OptionalBullModule } from './config/optional-bull.module';
       { name: 'login', ttl: 60_000, limit: 10 },
     ]),
     OptionalBullModule.register(),
+    ScheduleModule.forRoot(),
+    MaintenanceModule,
     RbacModule,
     AuditModule.register(),
     HealthModule,

@@ -10,6 +10,7 @@ import {
 import { User } from '../../rbac/entities/user.entity';
 
 @Entity('audit_logs')
+@Index(['createdAt'])
 @Index(['actorUserId', 'createdAt'])
 @Index(['entityType', 'entityId'])
 @Index(['action', 'createdAt'])

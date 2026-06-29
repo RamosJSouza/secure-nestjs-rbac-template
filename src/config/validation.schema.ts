@@ -59,6 +59,18 @@ export const validationSchema = Joi.object({
         }),
       otherwise: Joi.string().optional().allow(''),
     }),
+
+  PURGE_ENABLED: Joi.boolean().truthy('true').falsy('false').default(true),
+
+  SESSION_PURGE_CRON: Joi.string().default('0 3 * * *'),
+
+  SESSION_GRACE_DAYS: Joi.number().integer().min(0).default(1),
+
+  AUDIT_RETENTION_DAYS: Joi.number().integer().min(1).default(90),
+
+  AUDIT_PURGE_CRON: Joi.string().default('0 4 * * *'),
+
+  PURGE_BATCH_SIZE: Joi.number().integer().min(1).default(1000),
 }).options({
   allowUnknown: true,
   stripUnknown: true,
