@@ -33,6 +33,7 @@
   },
   "dependencies": {
     "@keyv/redis": "^5.1.6",
+    "@nestjs/bullmq": "^11.0.4",
     "@nestjs/cache-manager": "^3.1.0",
     "@nestjs/common": "11.1.27",
     "@nestjs/config": "4.0.3",
@@ -46,6 +47,7 @@
     "@nestjs/throttler": "^6.5.0",
     "@nestjs/typeorm": "^11.0.0",
     "bcryptjs": "^3.0.3",
+    "bullmq": "^5.79.2",
     "cache-manager": "^7.2.8",
     "cacheable": "^2.5.0",
     "class-transformer": "^0.5.1",

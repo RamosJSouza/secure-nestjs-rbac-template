@@ -17,6 +17,7 @@ import { CacheModule } from '@nestjs/cache-manager';
 import configuration from './config';
 import { validationSchema } from './config/validation.schema';
 import { buildCacheStoresOptions } from './config/cache-stores.factory';
+import { OptionalBullModule } from './config/optional-bull.module';
 
 @Module({
   imports: [
@@ -43,8 +44,9 @@ import { buildCacheStoresOptions } from './config/cache-stores.factory';
       { name: 'default', ttl: 60_000, limit: 100 },
       { name: 'login', ttl: 60_000, limit: 10 },
     ]),
+    OptionalBullModule.register(),
     RbacModule,
-    AuditModule,
+    AuditModule.register(),
     HealthModule,
     GracefulShutdownModule,
     AuthModule,
