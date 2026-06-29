@@ -56,7 +56,7 @@ npm run docker:down
 ## Arquitetura
 
 ### Módulos ativos
-- **AppModule** importa: AuthModule, UsersModule, RbacModule, OrganizationsModule, AuditModule, HealthModule, GracefulShutdownModule, LoggerModule.
+- **AppModule** importa: AuthModule, UsersModule, RbacModule, AuditModule, HealthModule, MaintenanceModule, GracefulShutdownModule, LoggerModule (+ OptionalBullModule quando `REDIS_HOST` está definido).
 - TasksModule existe no código mas **não** está importado em AppModule.
 
 ### Autenticação e autorização
@@ -70,13 +70,15 @@ npm run docker:down
 
 ### Banco de dados
 - PostgreSQL com TypeORM.
-- Config em `src/config/database.ts`.
+- Opções em `src/config/database.options.ts`; CLI/migrations usam `src/config/typeorm.datasource.ts`.
 - Variáveis: `DB_*` (não POSTGRES_*).
 - `synchronize` desabilitado em produção.
 
 ### Variáveis de ambiente principais
 - `DB_*` — conexão PostgreSQL.
 - `PRIVATE_KEY`, `PUBLIC_KEY` — chaves RSA para JWT.
+- `REDIS_HOST`, `REDIS_PORT` — cache, health, audit async (BullMQ); sem Redis, audit usa fallback síncrono.
+- `PURGE_*`, `AUDIT_RETENTION_DAYS`, `SESSION_GRACE_DAYS` — crons de purge (MaintenanceModule).
 - `PORT` — porta do servidor.
 - `NODE_ENV` — development | production | test.
 - `ALLOWED_ORIGINS` — obrigatório em produção.

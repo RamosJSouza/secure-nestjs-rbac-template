@@ -2,7 +2,7 @@
 
 ## Overview
 
-Prime Nest is a production-ready NestJS backend with a modular structure designed for scalability and maintainability. The system is **single-tenant** with an `Organization` entity placeholder for future multi-tenancy evolution.
+Prime Nest is a production-ready NestJS backend with a modular structure designed for scalability and maintainability. The system is **single-tenant** (no organization scoping in audit or RBAC).
 
 ## Module Structure
 
@@ -11,8 +11,8 @@ Prime Nest is a production-ready NestJS backend with a modular structure designe
 | AuthModule | Login, refresh, register, change-password |
 | UsersModule | User management (creation via auth/register) |
 | RbacModule | Features, Permissions, Roles, RolePermissions |
-| OrganizationsModule | Organization entity (placeholder) |
-| AuditModule | Append-only audit logging |
+| AuditModule | Append-only audit logging (async via BullMQ when Redis is configured) |
+| MaintenanceModule | Scheduled purge of expired sessions and old audit logs |
 | HealthModule | Liveness and readiness probes |
 | GracefulShutdownModule | Clean shutdown handling |
 | LoggerModule | Pino + Correlation ID |
@@ -37,7 +37,7 @@ src/
 ├── modules/
 │   ├── audit/         # Audit log
 │   ├── health/        # Health checks
-│   ├── organizations/ # Organization placeholder
+│   ├── maintenance/   # Session and audit retention purge
 │   └── rbac/          # RBAC entities and services
 ├── users/             # UsersService
 └── main.ts
@@ -47,5 +47,5 @@ src/
 
 - **No schema sync in production** — Migrations only.
 - **Fail-fast validation** — Joi schema validates on startup; production enforces required vars.
-- **Append-only audit** — No updates or deletes on audit records.
+- **Append-only audit** — No application updates; retention purge removes rows older than `AUDIT_RETENTION_DAYS`.
 - **Swagger exposed** — Intentional; facilitates integration and client generation.

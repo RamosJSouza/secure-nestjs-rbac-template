@@ -26,7 +26,6 @@ import { CorrelationIdModule } from './correlation-id.module';
         customProps: (req: any) => ({
           correlationId: req.correlationId || req.id,
           userId: req.user?.id,
-          organizationId: req.user?.organizationId,
         }),
       },
       forRoutes: ['*'],

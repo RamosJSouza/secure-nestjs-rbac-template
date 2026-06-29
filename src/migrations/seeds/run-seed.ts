@@ -1,4 +1,4 @@
-import dataSource from '../../config/database';
+import dataSource from '../../config/typeorm.datasource';
 import { seedRbac } from './rbac.seed';
 
 async function run() {

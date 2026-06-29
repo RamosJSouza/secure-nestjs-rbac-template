@@ -6,7 +6,6 @@ import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { RbacModule } from './modules/rbac/rbac.module';
-import { OrganizationsModule } from './modules/organizations/organizations.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { JwtAuthGuard } from './auth/strategy/jwt-auth.guard';
 import { HealthModule } from './modules/health/health.module';
@@ -18,6 +17,9 @@ import { CacheModule } from '@nestjs/cache-manager';
 import configuration from './config';
 import { validationSchema } from './config/validation.schema';
 import { buildCacheStoresOptions } from './config/cache-stores.factory';
+import { OptionalBullModule } from './config/optional-bull.module';
+import { ScheduleModule } from '@nestjs/schedule';
+import { MaintenanceModule } from './modules/maintenance/maintenance.module';
 
 @Module({
   imports: [
@@ -44,9 +46,11 @@ import { buildCacheStoresOptions } from './config/cache-stores.factory';
       { name: 'default', ttl: 60_000, limit: 100 },
       { name: 'login', ttl: 60_000, limit: 10 },
     ]),
+    OptionalBullModule.register(),
+    ScheduleModule.forRoot(),
+    MaintenanceModule,
     RbacModule,
-    OrganizationsModule,
-    AuditModule,
+    AuditModule.register(),
     HealthModule,
     GracefulShutdownModule,
     AuthModule,
