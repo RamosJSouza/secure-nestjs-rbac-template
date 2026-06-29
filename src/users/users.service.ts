@@ -36,10 +36,6 @@ export class UsersService {
     return this.usersRepository.save(user);
   }
 
-  async findAll(): Promise<User[]> {
-    return this.usersRepository.find();
-  }
-
   findOne(email: string): Promise<User | null> {
     return this.usersRepository.findOne({
       where: { email },
@@ -97,7 +93,4 @@ export class UsersService {
     );
   }
 
-  async remove(id: string): Promise<void> {
-    await this.usersRepository.softDelete(id);
-  }
 }

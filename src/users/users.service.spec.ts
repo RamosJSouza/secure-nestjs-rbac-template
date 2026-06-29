@@ -69,22 +69,6 @@ describe('UsersService', () => {
     });
   });
 
-  describe('findAll', () => {
-    it('should return an array of users', async () => {
-      const users = [
-        { id: 'uuid-1', name: 'User 1', email: 'user1@example.com' },
-        { id: 'uuid-2', name: 'User 2', email: 'user2@example.com' },
-      ];
-
-      mockRepository.find.mockResolvedValue(users);
-
-      const result = await service.findAll();
-
-      expect(mockRepository.find).toHaveBeenCalled();
-      expect(result).toEqual(users);
-    });
-  });
-
   describe('findOne', () => {
     it('should return a user by email', async () => {
       const email = 'test@example.com';
@@ -157,14 +141,4 @@ describe('UsersService', () => {
     });
   });
 
-  describe('remove', () => {
-    it('should soft delete a user by id', async () => {
-      const id = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
-      mockRepository.softDelete.mockResolvedValue({ affected: 1 });
-
-      await service.remove(id);
-
-      expect(mockRepository.softDelete).toHaveBeenCalledWith(id);
-    });
-  });
 });

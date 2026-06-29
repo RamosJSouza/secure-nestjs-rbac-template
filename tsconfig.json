@@ -16,7 +16,6 @@
       "@/*": ["src/*"],
       "@auth/*": ["src/auth/*"],
       "@users/*": ["src/users/*"],
-      "@tasks/*": ["src/tasks/*"],
       "@config/*": ["src/config/*"]
     }
   },
