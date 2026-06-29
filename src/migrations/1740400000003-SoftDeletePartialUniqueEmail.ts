@@ -6,7 +6,7 @@ export class SoftDeletePartialUniqueEmail1740400000003 implements MigrationInter
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`ALTER TABLE "users" DROP CONSTRAINT IF EXISTS "users_email_key"`);
     await queryRunner.query(
-      `CREATE UNIQUE INDEX "IDX_users_email_active" ON "users" ("email") WHERE "deletedAt" IS NULL`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS "IDX_users_email_active" ON "users" ("email") WHERE "deletedAt" IS NULL`,
     );
   }
 

@@ -181,6 +181,16 @@ describe('AuthService', () => {
         service.register({ email: 'reuse@x.com', name: 'Reuse', password: 'Passw0rd123' }),
       ).rejects.toThrow(ConflictException);
     });
+
+    it('rethrows non-23505 errors from create unchanged (not ConflictException)', async () => {
+      mockUsersService.findOne.mockResolvedValue(null);
+      const foreignError = Object.assign(new Error('fk violation'), { code: '23503' });
+      mockUsersService.create.mockRejectedValue(foreignError);
+
+      await expect(
+        service.register({ email: 'fk@x.com', name: 'FK', password: 'Passw0rd123' }),
+      ).rejects.toThrow('fk violation');
+    });
   });
 
   describe('refresh', () => {
