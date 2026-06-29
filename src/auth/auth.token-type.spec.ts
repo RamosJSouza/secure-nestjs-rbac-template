@@ -109,6 +109,20 @@ describe('Token type separation (S1)', () => {
       expect(result).toMatchObject({ id: 'sub-1', jti: 'j1' });
     });
 
+    it('enforces lockout even when lockedUntil is a deserialized string from cache', async () => {
+      const future = new Date(Date.now() + 60_000).toISOString();
+      const users: any = { findById: jest.fn() };
+      const cfg: any = { get: (k: string) => (k === 'keys.publicKey' ? 'pk' : undefined) };
+      const cacheManager: any = {
+        get: jest.fn(async (key: string) => (key.startsWith('user:') ? { id: 'sub-1', email: 't@x.com', isActive: true, lockedUntil: future } : undefined)),
+        set: jest.fn(),
+      };
+      const strategy = new JwtStrategy(cfg, users, cacheManager);
+      await expect(
+        strategy.validate({ sub: 'sub-1', email: 't@x.com', tokenType: 'access', jti: 'j1' }),
+      ).rejects.toThrow('Account is locked. Try again later.');
+    });
+
     it('rejects a denylisted access token (no user lookup)', async () => {
       const users: any = { findById: jest.fn() };
       const cfg: any = { get: (k: string) => (k === 'keys.publicKey' ? 'pk' : undefined) };

@@ -163,6 +163,24 @@ describe('UsersService', () => {
       await service.resetFailedLogin('u1');
       expect(cacheManager.del).toHaveBeenCalledWith('user:u1');
     });
+
+    it('recordFailedLogin invalidates the user cache', async () => {
+      const em = {
+        increment: jest.fn().mockResolvedValue(undefined),
+        findOne: jest.fn().mockResolvedValue({
+          id: 'u1',
+          failedLoginAttempts: 1,
+          lockedUntil: null,
+        }),
+        save: jest.fn().mockResolvedValue(undefined),
+      };
+      (mockRepository as any).manager = {
+        transaction: jest.fn(async (cb: any) => cb(em)),
+      };
+      cacheManager.del.mockResolvedValue(undefined);
+      await service.recordFailedLogin('u1');
+      expect(cacheManager.del).toHaveBeenCalledWith('user:u1');
+    });
   });
 
 });

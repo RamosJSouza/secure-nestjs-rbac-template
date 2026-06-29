@@ -5,6 +5,7 @@ import { ConfigService } from '@nestjs/config';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Cache } from 'cache-manager';
 import { UsersService } from 'src/users/users.service';
+import { User } from 'src/modules/rbac/entities/user.entity';
 import { RequestContext } from '@/logger/request-context';
 
 const USER_CACHE_TTL_MS = 30_000;
@@ -43,7 +44,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     }
 
     const cacheKey = `user:${payload.sub}`;
-    let user = (await this.cacheManager.get<any>(cacheKey)) ?? undefined;
+    let user = (await this.cacheManager.get<User | undefined>(cacheKey)) ?? undefined;
     if (!user) {
       user = await this.usersService.findById(payload.sub);
       if (!user) {
@@ -59,7 +60,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     RequestContext.setUser(user.id);
 
     const now = new Date();
-    if (user.lockedUntil && user.lockedUntil > now) {
+    const lockedUntil = user.lockedUntil ? new Date(user.lockedUntil) : null;
+    if (lockedUntil && lockedUntil > now) {
       throw new UnauthorizedException('Account is locked. Try again later.');
     }
 
