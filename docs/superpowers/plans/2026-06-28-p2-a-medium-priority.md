@@ -258,7 +258,7 @@ export class CorrectiveIndexes1740400000002 implements MigrationInterface {
 
 - [ ] **Step 2: Align entities**
 
-In `src/modules/audit/entities/audit-log.entity.ts`, add to the class-level `@Index` decorators:
+In `src/modules/audit/entities/audit-log.entity.ts`, add to the class-level `@Index` decorators. Use the `where` option so the entity index matches the migration's PARTIAL index (prevents dev-schema drift under `synchronize=true`):
 
 ```typescript
 @Entity('audit_logs')
@@ -266,7 +266,7 @@ In `src/modules/audit/entities/audit-log.entity.ts`, add to the class-level `@In
 @Index(['actorUserId', 'createdAt'])
 @Index(['entityType', 'entityId'])
 @Index(['action', 'createdAt'])
-@Index(['correlationId'])
+@Index(['correlationId'], { where: '"correlation_id" IS NOT NULL' })
 export class AuditLog {
 ```
 
