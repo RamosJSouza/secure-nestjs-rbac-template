@@ -3,6 +3,7 @@ import {
   NestInterceptor,
   ExecutionContext,
   CallHandler,
+  Logger,
 } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { tap } from 'rxjs/operators';
@@ -10,8 +11,17 @@ import { Reflector } from '@nestjs/core';
 import { AUDITABLE_KEY, AuditableOptions } from '../decorators/auditable.decorator';
 import { AuditLogService } from '../audit-log.service';
 
+interface AuditRequest {
+  ip?: string;
+  socket?: { remoteAddress?: string };
+  get?: (header: string) => string | undefined;
+  body?: { permissionIds?: unknown };
+}
+
 @Injectable()
 export class AuditInterceptor implements NestInterceptor {
+  private readonly logger = new Logger(AuditInterceptor.name);
+
   constructor(
     private readonly reflector: Reflector,
     private readonly auditLogService: AuditLogService,
@@ -42,16 +52,21 @@ export class AuditInterceptor implements NestInterceptor {
     options: AuditableOptions,
     result: unknown,
   ): void {
+    const req = context.switchToHttp().getRequest<AuditRequest>();
+    const ip = req?.ip ?? req?.socket?.remoteAddress;
+    const userAgent = req?.get?.('user-agent');
     const entityId = this.resolveEntityId(context, options, result);
     this.auditLogService
       .log({
         action: options.action,
         entityType: options.entityType,
         entityId: entityId ?? undefined,
+        ip,
+        userAgent,
         metadata: this.buildMetadata(context, result),
       })
-      .catch(() => {
-        /* Audit failure must not fail the request; already logged in AuditLogService */
+      .catch((err: unknown) => {
+        this.logger.error(`Failed to write audit log: ${(err as { message?: string })?.message ?? err}`);
       });
   }
 
@@ -97,6 +112,14 @@ export class AuditInterceptor implements NestInterceptor {
       const obj = result as Record<string, unknown>;
       if (obj.permissionIds && Array.isArray(obj.permissionIds)) {
         metadata.permissionIds = obj.permissionIds;
+      }
+    }
+
+    if (!metadata.permissionIds) {
+      const req = context.switchToHttp().getRequest<AuditRequest>();
+      const bodyPermissionIds = req?.body?.permissionIds;
+      if (Array.isArray(bodyPermissionIds)) {
+        metadata.permissionIds = bodyPermissionIds;
       }
     }
 

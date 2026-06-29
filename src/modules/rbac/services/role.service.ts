@@ -111,7 +111,7 @@ export class RoleService {
         this.logger.log(`Deleted role ${id}`);
     }
 
-    async assignPermissions(roleId: string, dto: AssignPermissionsDto, currentUserId?: string): Promise<void> {
+    async assignPermissions(roleId: string, dto: AssignPermissionsDto, currentUserId?: string): Promise<{ permissionIds: string[] }> {
         await this.findOne(roleId);
 
         const queryRunner = this.dataSource.createQueryRunner();
@@ -137,6 +137,8 @@ export class RoleService {
             await this.rbacService.invalidateRoleCache(roleId);
 
             this.logger.log(`Assigned ${newPermissions.length} permissions to role ${roleId} by user ${currentUserId || 'system'}`);
+
+            return { permissionIds: uniquePermissions };
         } catch (err) {
             await queryRunner.rollbackTransaction();
             this.logger.error(`Failed to assign permissions: ${err.message}`, err.stack);

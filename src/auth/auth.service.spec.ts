@@ -94,6 +94,37 @@ describe('AuthService', () => {
       );
     });
 
+    it('audits auth.login_success on successful login with ip and userAgent', async () => {
+      const loginDto = { email: 'test@example.com', password: 'password123' };
+      const mockUser = {
+        id: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+        email: 'test@example.com',
+        password: '$2b$10$abc',
+        name: 'Test User',
+        roleId: 'role-uuid',
+        isActive: true,
+        lockedUntil: null,
+      };
+      mockUsersService.findOneWithPassword.mockResolvedValue(mockUser);
+      mockJwtService.sign.mockReturnValue('mock-jwt');
+      sessionRepo.save.mockResolvedValue(undefined);
+      const bcryptjs = await import('bcryptjs');
+      jest.spyOn(bcryptjs, 'compare').mockResolvedValue(true as never);
+
+      await service.login(loginDto, '1.2.3.4', 'UA-test');
+
+      expect(auditLogService.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'auth.login_success',
+          entityType: 'User',
+          entityId: mockUser.id,
+          actorUserId: mockUser.id,
+          ip: '1.2.3.4',
+          userAgent: 'UA-test',
+        }),
+      );
+    });
+
     it('should throw UnauthorizedException for invalid user', async () => {
       mockUsersService.findOneWithPassword.mockResolvedValue(null);
       await expect(

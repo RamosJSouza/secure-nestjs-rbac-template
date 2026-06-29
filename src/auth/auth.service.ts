@@ -266,6 +266,16 @@ export class AuthService {
     });
     await this.sessionRepository.save(session);
 
+    await this.auditLogService.log({
+      action: 'auth.login_success',
+      entityType: 'User',
+      entityId: user.id,
+      actorUserId: user.id,
+      metadata: {},
+      ip: ip ?? undefined,
+      userAgent: userAgent ?? undefined,
+    });
+
     return {
       email: user.email,
       access_token: accessToken,
