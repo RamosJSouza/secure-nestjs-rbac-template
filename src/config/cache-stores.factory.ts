@@ -8,12 +8,19 @@ interface CacheOptions {
   stores: (Keyv | KeyvStoreAdapter)[];
 }
 
+let sharedRedisStore: KeyvRedis<unknown> | null = null;
+
+export function getSharedRedisStore(): KeyvRedis<unknown> | null {
+  return sharedRedisStore;
+}
+
 export function buildCacheStores(configService: ConfigService): (Keyv | KeyvStoreAdapter)[] {
   const host = configService.get<string>('REDIS_HOST');
   const port = Number(configService.get<string | number>('REDIS_PORT')) || 6379;
 
   if (host) {
-    return [new KeyvRedis({ socket: { host, port } })];
+    sharedRedisStore = new KeyvRedis<unknown>({ socket: { host, port } });
+    return [sharedRedisStore];
   }
   return [new Keyv({ store: new KeyvCacheableMemory() })];
 }
