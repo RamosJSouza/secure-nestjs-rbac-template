@@ -13,6 +13,7 @@ import { User } from '../../rbac/entities/user.entity';
 @Index(['userId'])
 @Index(['refreshTokenHash'])
 @Index(['rotatedFromSessionId'])
+@Index(['expiresAt', 'revokedAt'])
 export class Session {
   @PrimaryGeneratedColumn('uuid')
   id: string;
