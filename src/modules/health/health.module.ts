@@ -1,7 +1,11 @@
 import { Module } from '@nestjs/common';
 import { TerminusModule } from '@nestjs/terminus';
 import { HealthController } from './health.controller';
-import { RedisHealthIndicator, RedisPinger } from './indicators/redis.health';
+import {
+  createRedisPingerFromStore,
+  RedisHealthIndicator,
+  RedisPinger,
+} from './indicators/redis.health';
 import { getSharedRedisStore } from '@/config/cache-stores.factory';
 
 @Module({
@@ -15,21 +19,10 @@ import { getSharedRedisStore } from '@/config/cache-stores.factory';
         if (!store) {
           return null;
         }
-        const pinger: RedisPinger = {
-          ping: () =>
-            store.getClient().then((client) => (client as { ping(): Promise<unknown> }).ping()),
-          get isOpen(): boolean {
-            return Boolean((store.client as { isOpen?: boolean }).isOpen);
-          },
-        };
-        return pinger;
+        return createRedisPingerFromStore(store);
       },
     },
-    {
-      provide: RedisHealthIndicator,
-      useFactory: (pinger: RedisPinger | null) => new RedisHealthIndicator(pinger),
-      inject: ['REDIS_PINGER'],
-    },
+    RedisHealthIndicator,
   ],
 })
 export class HealthModule {}
