@@ -16,11 +16,18 @@ import { Role } from '@/modules/rbac/entities/role.entity';
     PassportModule.register({ defaultStrategy: 'jwt', property: 'user', session: false }),
     JwtModule.registerAsync({
       imports: [ConfigModule],
-      useFactory: (configService: ConfigService) => ({
-        privateKey: configService.get<string>('keys.privateKey'),
-        publicKey: configService.get<string>('keys.publicKey'),
-        signOptions: { expiresIn: '15m', algorithm: 'RS256' },
-      }),
+      useFactory: (configService: ConfigService) => {
+        const privateKey = configService.get<string>('keys.privateKey');
+        const publicKey = configService.get<string>('keys.publicKey');
+        if (!privateKey || !publicKey) {
+          throw new Error('PRIVATE_KEY and PUBLIC_KEY must be configured (RS256 JWT)');
+        }
+        return {
+          privateKey,
+          publicKey,
+          signOptions: { expiresIn: '15m', algorithm: 'RS256' },
+        };
+      },
       inject: [ConfigService],
     }),
     UsersModule,
