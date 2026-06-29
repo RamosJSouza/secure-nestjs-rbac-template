@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { Feature } from '../entities/feature.entity';
 import { CreateFeatureDto, UpdateFeatureDto, QueryFeatureDto } from '../dto/feature.dto';
+import { RbacService } from './rbac.service';
 
 @Injectable()
 export class FeatureService {
@@ -11,6 +12,7 @@ export class FeatureService {
     constructor(
         @InjectRepository(Feature)
         private featureRepository: Repository<Feature>,
+        private rbacService: RbacService,
         private dataSource: DataSource,
     ) { }
 
@@ -74,6 +76,7 @@ export class FeatureService {
             throw new NotFoundException(`Feature ${id} not found`);
         }
 
+        await this.rbacService.invalidateAllRoles();
         return this.findOne(id);
     }
 
@@ -86,5 +89,7 @@ export class FeatureService {
             }
             throw err;
         }
+
+        await this.rbacService.invalidateAllRoles();
     }
 }
