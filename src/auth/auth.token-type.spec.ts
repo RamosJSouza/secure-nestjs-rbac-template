@@ -76,34 +76,47 @@ describe('Token type separation (S1)', () => {
 
   describe('JwtStrategy', () => {
     it('rejects a refresh token presented as access (specific message, no user lookup)', async () => {
-      const users: any = { findOne: jest.fn() };
+      const users: any = { findById: jest.fn() };
       const cfg: any = { get: (k: string) => (k === 'keys.publicKey' ? 'pk' : undefined) };
       const cacheManager: any = { get: jest.fn().mockResolvedValue(undefined) };
       const strategy = new JwtStrategy(cfg, users, cacheManager);
       await expect(strategy.validate({ sub: 'u1', email: 't@x.com', tokenType: 'refresh', jti: 'jti-1' }))
         .rejects.toThrow('Wrong token type');
-      expect(users.findOne).not.toHaveBeenCalled();
+      expect(users.findById).not.toHaveBeenCalled();
     });
 
-    it('accepts an access token (tokenType=access) and loads user', async () => {
-      const user = { id: 'u1', email: 't@x.com', isActive: true, lockedUntil: null };
-      const users: any = { findOne: jest.fn().mockResolvedValue(user) };
+    it('accepts an access token and loads user by sub (cache miss -> set)', async () => {
+      const users: any = { findById: jest.fn().mockResolvedValue({ id: 'sub-1', email: 't@x.com', isActive: true, lockedUntil: null }) };
       const cfg: any = { get: (k: string) => (k === 'keys.publicKey' ? 'pk' : undefined) };
-      const cacheManager: any = { get: jest.fn().mockResolvedValue(undefined) };
+      const cacheManager: any = { get: jest.fn().mockResolvedValue(undefined), set: jest.fn().mockResolvedValue(undefined) };
       const strategy = new JwtStrategy(cfg, users, cacheManager);
-      const result = await strategy.validate({ sub: 'u1', email: 't@x.com', tokenType: 'access', jti: 'jti-1' });
-      expect(result).toEqual({ ...user, jti: 'jti-1' });
-      expect(users.findOne).toHaveBeenCalledWith('t@x.com');
+      const result = await strategy.validate({ sub: 'sub-1', email: 't@x.com', tokenType: 'access', jti: 'j1' });
+      expect(users.findById).toHaveBeenCalledWith('sub-1');
+      expect(cacheManager.set).toHaveBeenCalledWith('user:sub-1', expect.anything(), expect.any(Number));
+      expect(result).toMatchObject({ id: 'sub-1', jti: 'j1' });
+    });
+
+    it('serves the user from cache on hit (no DB lookup)', async () => {
+      const users: any = { findById: jest.fn() };
+      const cfg: any = { get: (k: string) => (k === 'keys.publicKey' ? 'pk' : undefined) };
+      const cacheManager: any = {
+        get: jest.fn(async (key: string) => (key.startsWith('user:') ? { id: 'sub-1', email: 't@x.com', isActive: true, lockedUntil: null } : undefined)),
+        set: jest.fn(),
+      };
+      const strategy = new JwtStrategy(cfg, users, cacheManager);
+      const result = await strategy.validate({ sub: 'sub-1', email: 't@x.com', tokenType: 'access', jti: 'j1' });
+      expect(users.findById).not.toHaveBeenCalled();
+      expect(result).toMatchObject({ id: 'sub-1', jti: 'j1' });
     });
 
     it('rejects a denylisted access token (no user lookup)', async () => {
-      const users: any = { findOne: jest.fn() };
+      const users: any = { findById: jest.fn() };
       const cfg: any = { get: (k: string) => (k === 'keys.publicKey' ? 'pk' : undefined) };
       const cacheManager: any = { get: jest.fn().mockResolvedValue(1) };
       const strategy = new JwtStrategy(cfg, users, cacheManager);
       await expect(strategy.validate({ sub: 'u1', email: 't@x.com', tokenType: 'access', jti: 'denied-jti' }))
         .rejects.toThrow('Token has been revoked');
-      expect(users.findOne).not.toHaveBeenCalled();
+      expect(users.findById).not.toHaveBeenCalled();
     });
   });
 });

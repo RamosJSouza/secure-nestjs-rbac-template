@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { UsersService } from './users.service';
 import { User } from 'src/modules/rbac/entities/user.entity';
 
@@ -10,6 +11,13 @@ describe('UsersService', () => {
     create: jest.fn(),
     save: jest.fn(),
     findOne: jest.fn(),
+    update: jest.fn(),
+  };
+
+  const cacheManager = {
+    get: jest.fn(),
+    set: jest.fn(),
+    del: jest.fn().mockResolvedValue(undefined),
   };
 
   beforeEach(async () => {
@@ -20,6 +28,7 @@ describe('UsersService', () => {
           provide: getRepositoryToken(User),
           useValue: mockRepository,
         },
+        { provide: CACHE_MANAGER, useValue: cacheManager },
       ],
     }).compile();
 
@@ -136,6 +145,23 @@ describe('UsersService', () => {
         select: expect.objectContaining({ password: true }),
       });
       expect(user?.password).toBe('h');
+    });
+  });
+
+  describe('cache invalidation', () => {
+    it('updatePassword invalidates the user cache', async () => {
+      mockRepository.update.mockResolvedValue(undefined);
+      cacheManager.del.mockResolvedValue(undefined);
+      await service.updatePassword('u1', 'hash');
+      expect(mockRepository.update).toHaveBeenCalledWith({ id: 'u1' }, { password: 'hash' });
+      expect(cacheManager.del).toHaveBeenCalledWith('user:u1');
+    });
+
+    it('resetFailedLogin invalidates the user cache', async () => {
+      mockRepository.update.mockResolvedValue(undefined);
+      cacheManager.del.mockResolvedValue(undefined);
+      await service.resetFailedLogin('u1');
+      expect(cacheManager.del).toHaveBeenCalledWith('user:u1');
     });
   });
 

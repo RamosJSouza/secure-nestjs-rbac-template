@@ -7,6 +7,8 @@ import { Cache } from 'cache-manager';
 import { UsersService } from 'src/users/users.service';
 import { RequestContext } from '@/logger/request-context';
 
+const USER_CACHE_TTL_MS = 30_000;
+
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(
@@ -40,10 +42,14 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       }
     }
 
-    const user = await this.usersService.findOne(payload.email);
-
+    const cacheKey = `user:${payload.sub}`;
+    let user = (await this.cacheManager.get<any>(cacheKey)) ?? undefined;
     if (!user) {
-      throw new UnauthorizedException('Invalid token');
+      user = await this.usersService.findById(payload.sub);
+      if (!user) {
+        throw new UnauthorizedException('Invalid token');
+      }
+      await this.cacheManager.set(cacheKey, user, USER_CACHE_TTL_MS);
     }
 
     if (!user.isActive) {

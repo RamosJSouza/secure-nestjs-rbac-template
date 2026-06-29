@@ -1,6 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Inject } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import { Cache } from 'cache-manager';
 import { CreateUserDto } from './dto/create-user.dto';
 import { User } from 'src/modules/rbac/entities/user.entity';
 
@@ -23,7 +25,14 @@ const WITH_PASSWORD_SELECT = {
 
 @Injectable()
 export class UsersService {
-  constructor(@InjectRepository(User) private readonly usersRepository: Repository<User>) {}
+  constructor(
+    @InjectRepository(User) private readonly usersRepository: Repository<User>,
+    @Inject(CACHE_MANAGER) private readonly cacheManager: Cache,
+  ) {}
+
+  private async invalidateUserCache(userId: string): Promise<void> {
+    await this.cacheManager.del(`user:${userId}`);
+  }
 
   create(createUserDto: CreateUserDto): Promise<User> {
     const user = this.usersRepository.create({
@@ -63,7 +72,7 @@ export class UsersService {
   }
 
   async recordFailedLogin(userId: string): Promise<{ failedLoginAttempts: number; lockedUntil: Date | null }> {
-    return this.usersRepository.manager.transaction(async (em) => {
+    const result = await this.usersRepository.manager.transaction(async (em) => {
       await em.increment(User, { id: userId }, 'failedLoginAttempts', 1);
       const updated = await em.findOne(User, { where: { id: userId } });
       if (!updated) throw new Error('User not found');
@@ -77,6 +86,8 @@ export class UsersService {
       }
       return { failedLoginAttempts: updated.failedLoginAttempts, lockedUntil: updated.lockedUntil };
     });
+    await this.invalidateUserCache(userId);
+    return result;
   }
 
   async resetFailedLogin(userId: string): Promise<void> {
@@ -84,6 +95,7 @@ export class UsersService {
       { id: userId },
       { failedLoginAttempts: 0, lockedUntil: null },
     );
+    await this.invalidateUserCache(userId);
   }
 
   async updatePassword(userId: string, hashedPassword: string): Promise<void> {
@@ -91,6 +103,7 @@ export class UsersService {
       { id: userId },
       { password: hashedPassword },
     );
+    await this.invalidateUserCache(userId);
   }
 
 }
