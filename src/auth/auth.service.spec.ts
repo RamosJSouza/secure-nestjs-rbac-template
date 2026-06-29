@@ -170,6 +170,17 @@ describe('AuthService', () => {
         service.register({ email: 'e@x.com', name: 'E', password: 'p' }),
       ).rejects.toThrow(ConflictException);
     });
+
+    it('throws ConflictException when email belongs to a soft-deleted user (unique violation)', async () => {
+      mockUsersService.findOne.mockResolvedValue(null);
+      mockUsersService.create.mockRejectedValue(
+        Object.assign(new Error('duplicate key'), { code: '23505' }),
+      );
+
+      await expect(
+        service.register({ email: 'reuse@x.com', name: 'Reuse', password: 'Passw0rd123' }),
+      ).rejects.toThrow(ConflictException);
+    });
   });
 
   describe('refresh', () => {

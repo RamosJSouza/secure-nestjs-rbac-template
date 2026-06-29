@@ -324,14 +324,21 @@ export class AuthService {
 
     const hashedPassword = await hash(dto.password, 12);
 
-    const user = await this.usersService.create({
-      email: dto.email,
-      name: dto.name,
-      password: hashedPassword,
-      roleId,
-    });
+    try {
+      const user = await this.usersService.create({
+        email: dto.email,
+        name: dto.name,
+        password: hashedPassword,
+        roleId,
+      });
 
-    return { message: 'User created with success', userId: user.id };
+      return { message: 'User created with success', userId: user.id };
+    } catch (err) {
+      if (err && typeof err === 'object' && (err as { code?: string }).code === '23505') {
+        throw new ConflictException('User already exists');
+      }
+      throw err;
+    }
   }
 
   async changePassword(
