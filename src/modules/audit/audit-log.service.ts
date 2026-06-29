@@ -14,7 +14,6 @@ export interface AuditLogEntry {
    * `string` → explicit actor.
    */
   actorUserId?: string | null;
-  organizationId?: string;
   correlationId?: string;
   metadata?: Record<string, unknown>;
   ip?: string;
@@ -38,7 +37,6 @@ export class AuditLogService {
         entityType: entry.entityType,
         entityId: entry.entityId,
         actorUserId: entry.actorUserId === undefined ? RequestContext.getUserId() : entry.actorUserId,
-        organizationId: entry.organizationId ?? RequestContext.getOrganizationId(),
         correlationId: correlationId ?? null,
         metadata: entry.metadata ?? {},
         ip: entry.ip ?? null,

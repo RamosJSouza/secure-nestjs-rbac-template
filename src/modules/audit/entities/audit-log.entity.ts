@@ -7,11 +7,9 @@ import {
   CreateDateColumn,
   Index,
 } from 'typeorm';
-import { Organization } from '../../organizations/entities/organization.entity';
 import { User } from '../../rbac/entities/user.entity';
 
 @Entity('audit_logs')
-@Index(['organizationId', 'createdAt'])
 @Index(['actorUserId', 'createdAt'])
 @Index(['entityType', 'entityId'])
 @Index(['action', 'createdAt'])
@@ -19,13 +17,6 @@ import { User } from '../../rbac/entities/user.entity';
 export class AuditLog {
   @PrimaryGeneratedColumn('uuid')
   id: string;
-
-  @ManyToOne(() => Organization, { onDelete: 'SET NULL', nullable: true })
-  @JoinColumn({ name: 'organization_id' })
-  organization: Organization | null;
-
-  @Column({ name: 'organization_id', type: 'uuid', nullable: true })
-  organizationId: string | null;
 
   @ManyToOne(() => User, { onDelete: 'SET NULL', nullable: true })
   @JoinColumn({ name: 'actor_user_id' })

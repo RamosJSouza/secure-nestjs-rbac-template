@@ -6,7 +6,6 @@ import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { RbacModule } from './modules/rbac/rbac.module';
-import { OrganizationsModule } from './modules/organizations/organizations.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { JwtAuthGuard } from './auth/strategy/jwt-auth.guard';
 import { HealthModule } from './modules/health/health.module';
@@ -45,7 +44,6 @@ import { buildCacheStoresOptions } from './config/cache-stores.factory';
       { name: 'login', ttl: 60_000, limit: 10 },
     ]),
     RbacModule,
-    OrganizationsModule,
     AuditModule,
     HealthModule,
     GracefulShutdownModule,
