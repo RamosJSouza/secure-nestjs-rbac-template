@@ -14,14 +14,18 @@ export const validationSchema = Joi.object({
   DB_DATABASE: Joi.string().required(),
 
   PRIVATE_KEY: Joi.string()
-    .min(1)
-    .message('PRIVATE_KEY must not be empty')
-    .required(),
+    .required()
+    .messages({
+      'string.empty': 'PRIVATE_KEY must not be empty',
+      'any.required': 'PRIVATE_KEY is required',
+    }),
 
   PUBLIC_KEY: Joi.string()
-    .min(1)
-    .message('PUBLIC_KEY must not be empty')
-    .required(),
+    .required()
+    .messages({
+      'string.empty': 'PUBLIC_KEY must not be empty',
+      'any.required': 'PUBLIC_KEY is required',
+    }),
 
   DB_SSL: Joi.string()
     .when('NODE_ENV', {
