@@ -59,7 +59,7 @@ export class RbacService {
         const fetchPromise = (async () => {
             try {
                 const rolePermissions = await this.rolePermissionRepository.find({
-                    where: { roleId, granted: true },
+                    where: { roleId },
                     relations: ['permission', 'permission.feature'],
                     select: {
                         id: true,

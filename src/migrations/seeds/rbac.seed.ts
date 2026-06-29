@@ -100,7 +100,6 @@ export async function seedRbac(dataSource: DataSource) {
             rolePermissionRepo.create({
                 roleId: adminRole.id,
                 permissionId: p.id,
-                granted: true
             })
         );
 

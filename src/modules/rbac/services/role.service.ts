@@ -127,7 +127,6 @@ export class RoleService {
                 queryRunner.manager.create(RolePermission, {
                     roleId,
                     permissionId,
-                    granted: true
                 })
             );
 
