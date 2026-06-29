@@ -9,9 +9,7 @@ describe('UsersService', () => {
   const mockRepository = {
     create: jest.fn(),
     save: jest.fn(),
-    find: jest.fn(),
     findOne: jest.fn(),
-    softDelete: jest.fn(),
   };
 
   beforeEach(async () => {
