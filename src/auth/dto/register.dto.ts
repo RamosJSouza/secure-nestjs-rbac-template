@@ -1,4 +1,4 @@
-import { IsEmail, IsNotEmpty, IsOptional, IsString, IsUUID, MinLength } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsOptional, IsString, IsUUID, Matches } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class RegisterDto {
@@ -21,14 +21,15 @@ export class RegisterDto {
   name: string;
 
   @ApiProperty({
-    example: 'P@ssw0rd123',
-    minLength: 6,
-    description: 'User password (min 6 characters)',
+    example: 'P@ssw0rd1234',
+    description: 'User password (min 12 chars, upper + lower + digit)',
     required: true,
   })
   @IsNotEmpty()
   @IsString()
-  @MinLength(6)
+  @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{12,}$/, {
+    message: 'password must be at least 12 characters and contain upper, lower, and a digit',
+  })
   password: string;
 
   @ApiPropertyOptional({ example: 'uuid-of-role', description: 'Role to assign. Defaults to "Viewer".' })

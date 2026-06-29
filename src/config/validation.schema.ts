@@ -14,24 +14,18 @@ export const validationSchema = Joi.object({
   DB_DATABASE: Joi.string().required(),
 
   PRIVATE_KEY: Joi.string()
-    .when('NODE_ENV', {
-      is: 'production',
-      then: Joi.string().min(1).messages({
-        'string.min': 'PRIVATE_KEY must not be empty when NODE_ENV=production',
-      }),
-      otherwise: Joi.string().allow(''),
-    })
-    .required(),
+    .required()
+    .messages({
+      'string.empty': 'PRIVATE_KEY must not be empty',
+      'any.required': 'PRIVATE_KEY is required',
+    }),
 
   PUBLIC_KEY: Joi.string()
-    .when('NODE_ENV', {
-      is: 'production',
-      then: Joi.string().min(1).messages({
-        'string.min': 'PUBLIC_KEY must not be empty when NODE_ENV=production',
-      }),
-      otherwise: Joi.string().allow(''),
-    })
-    .required(),
+    .required()
+    .messages({
+      'string.empty': 'PUBLIC_KEY must not be empty',
+      'any.required': 'PUBLIC_KEY is required',
+    }),
 
   DB_SSL: Joi.string()
     .when('NODE_ENV', {

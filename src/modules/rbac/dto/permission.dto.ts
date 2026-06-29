@@ -24,11 +24,6 @@ export class UpdatePermissionDto {
     @ApiPropertyOptional()
     @IsOptional()
     @IsString()
-    action?: string;
-
-    @ApiPropertyOptional()
-    @IsOptional()
-    @IsString()
     name?: string;
 
     @ApiPropertyOptional()

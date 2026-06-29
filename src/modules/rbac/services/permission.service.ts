@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { Permission } from '../entities/permission.entity';
 import { CreatePermissionDto, UpdatePermissionDto } from '../dto/permission.dto';
+import { RbacService } from './rbac.service';
 
 @Injectable()
 export class PermissionService {
@@ -11,6 +12,7 @@ export class PermissionService {
     constructor(
         @InjectRepository(Permission)
         private permissionRepository: Repository<Permission>,
+        private rbacService: RbacService,
         private dataSource: DataSource,
     ) { }
 
@@ -49,7 +51,13 @@ export class PermissionService {
     }
 
     async update(id: string, dto: UpdatePermissionDto): Promise<Permission> {
-        await this.permissionRepository.update(id, dto);
+        const result = await this.permissionRepository.update(id, dto);
+
+        if (result.affected === 0) {
+            throw new NotFoundException(`Permission with ID "${id}" not found`);
+        }
+
+        await this.rbacService.invalidateAllRoles();
         return this.findOne(id);
     }
 
@@ -62,5 +70,7 @@ export class PermissionService {
             }
             throw err;
         }
+
+        await this.rbacService.invalidateAllRoles();
     }
 }

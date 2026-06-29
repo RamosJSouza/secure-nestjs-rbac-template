@@ -8,7 +8,12 @@ export interface AuditLogEntry {
   action: string;
   entityType: string;
   entityId?: string;
-  actorUserId?: string;
+  /**
+   * `undefined` (or omitted) → fall back to RequestContext.getUserId();
+   * `null` → persist null (actor genuinely unknown, e.g. token reuse / lockout);
+   * `string` → explicit actor.
+   */
+  actorUserId?: string | null;
   organizationId?: string;
   correlationId?: string;
   metadata?: Record<string, unknown>;
@@ -32,7 +37,7 @@ export class AuditLogService {
         action: entry.action,
         entityType: entry.entityType,
         entityId: entry.entityId,
-        actorUserId: entry.actorUserId ?? RequestContext.getUserId(),
+        actorUserId: entry.actorUserId === undefined ? RequestContext.getUserId() : entry.actorUserId,
         organizationId: entry.organizationId ?? RequestContext.getOrganizationId(),
         correlationId: correlationId ?? null,
         metadata: entry.metadata ?? {},

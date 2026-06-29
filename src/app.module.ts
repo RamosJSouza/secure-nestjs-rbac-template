@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
@@ -36,7 +35,6 @@ import { buildCacheStoresOptions } from './config/cache-stores.factory';
       useFactory: (configService: ConfigService) => configService.get('database'),
       inject: [ConfigService],
     }),
-    ScheduleModule.forRoot(),
     CacheModule.registerAsync({
       isGlobal: true,
       inject: [ConfigService],

@@ -11,6 +11,8 @@ export class RbacService {
     private readonly logger = new Logger(RbacService.name);
     private readonly ttl: number;
     private readonly pendingRequests = new Map<string, Promise<string[]>>();
+    private readonly cachedRoleKeys = new Set<string>();
+    private invalidationEpoch = 0;
 
     constructor(
         @InjectRepository(RolePermission)
@@ -57,9 +59,10 @@ export class RbacService {
         }
 
         const fetchPromise = (async () => {
+            const epoch = this.invalidationEpoch;
             try {
                 const rolePermissions = await this.rolePermissionRepository.find({
-                    where: { roleId, granted: true },
+                    where: { roleId },
                     relations: ['permission', 'permission.feature'],
                     select: {
                         id: true,
@@ -78,9 +81,12 @@ export class RbacService {
                     (rp) => `${rp.permission.feature.key}:${rp.permission.action}`,
                 );
 
-                this.cacheManager.set(cacheKey, permissions, this.ttl).catch(err => {
-                    this.logger.warn(`Redis cache set failed for ${cacheKey}`, err.message);
-                });
+                if (epoch === this.invalidationEpoch) {
+                    this.cacheManager.set(cacheKey, permissions, this.ttl).catch(err => {
+                        this.logger.warn(`Redis cache set failed for ${cacheKey}`, err.message);
+                    });
+                    this.cachedRoleKeys.add(cacheKey);
+                }
 
                 return permissions;
             } finally {
@@ -94,13 +100,42 @@ export class RbacService {
 
     async invalidateRoleCache(roleId: string): Promise<void> {
         const cacheKey = `rbac:role:${roleId}:permissions`;
+        this.invalidationEpoch++;
         this.pendingRequests.delete(cacheKey);
 
         try {
             await this.cacheManager.del(cacheKey);
+            this.cachedRoleKeys.delete(cacheKey);
             this.logger.log(`Invalidated cache for role ${roleId}`);
         } catch (error) {
             this.logger.error(`Failed to invalidate cache for role ${roleId}`, error.stack);
+        }
+    }
+
+    /**
+     * Invalidates every cached role permission set.
+     * Used when a Feature key or Permission action changes, since the cached
+     * `featureKey:action` strings become stale across all roles.
+     * Store-agnostic: iterates an in-memory registry of written keys instead of
+     * relying on a `keys()` API that Keyv stores do not uniformly expose.
+     * Never throws — failures are logged so a successful mutation is not turned into a 500.
+     */
+    async invalidateAllRoles(): Promise<void> {
+        this.invalidationEpoch++;
+        const keys = Array.from(this.cachedRoleKeys);
+
+        for (const cacheKey of keys) {
+            this.pendingRequests.delete(cacheKey);
+            try {
+                await this.cacheManager.del(cacheKey);
+            } catch (error) {
+                this.logger.error(`Failed to invalidate cache key ${cacheKey}`, error.stack);
+            }
+        }
+
+        this.cachedRoleKeys.clear();
+        if (keys.length > 0) {
+            this.logger.log(`Invalidated cache for all roles (${keys.length} keys)`);
         }
     }
 }

@@ -25,9 +25,6 @@ export class RolePermission {
     @Column({ name: 'permission_id' })
     permissionId: string;
 
-    @Column({ default: true })
-    granted: boolean;
-
     @CreateDateColumn()
     createdAt: Date;
 }

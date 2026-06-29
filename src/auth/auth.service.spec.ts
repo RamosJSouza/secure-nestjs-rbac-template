@@ -94,6 +94,37 @@ describe('AuthService', () => {
       );
     });
 
+    it('audits auth.login_success on successful login with ip and userAgent', async () => {
+      const loginDto = { email: 'test@example.com', password: 'password123' };
+      const mockUser = {
+        id: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+        email: 'test@example.com',
+        password: '$2b$10$abc',
+        name: 'Test User',
+        roleId: 'role-uuid',
+        isActive: true,
+        lockedUntil: null,
+      };
+      mockUsersService.findOneWithPassword.mockResolvedValue(mockUser);
+      mockJwtService.sign.mockReturnValue('mock-jwt');
+      sessionRepo.save.mockResolvedValue(undefined);
+      const bcryptjs = await import('bcryptjs');
+      jest.spyOn(bcryptjs, 'compare').mockResolvedValue(true as never);
+
+      await service.login(loginDto, '1.2.3.4', 'UA-test');
+
+      expect(auditLogService.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'auth.login_success',
+          entityType: 'User',
+          entityId: mockUser.id,
+          actorUserId: mockUser.id,
+          ip: '1.2.3.4',
+          userAgent: 'UA-test',
+        }),
+      );
+    });
+
     it('should throw UnauthorizedException for invalid user', async () => {
       mockUsersService.findOneWithPassword.mockResolvedValue(null);
       await expect(
@@ -170,6 +201,27 @@ describe('AuthService', () => {
         service.register({ email: 'e@x.com', name: 'E', password: 'p' }),
       ).rejects.toThrow(ConflictException);
     });
+
+    it('throws ConflictException when email belongs to a soft-deleted user (unique violation)', async () => {
+      mockUsersService.findOne.mockResolvedValue(null);
+      mockUsersService.create.mockRejectedValue(
+        Object.assign(new Error('duplicate key'), { code: '23505' }),
+      );
+
+      await expect(
+        service.register({ email: 'reuse@x.com', name: 'Reuse', password: 'Passw0rd123' }),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('rethrows non-23505 errors from create unchanged (not ConflictException)', async () => {
+      mockUsersService.findOne.mockResolvedValue(null);
+      const foreignError = Object.assign(new Error('fk violation'), { code: '23503' });
+      mockUsersService.create.mockRejectedValue(foreignError);
+
+      await expect(
+        service.register({ email: 'fk@x.com', name: 'FK', password: 'Passw0rd123' }),
+      ).rejects.toThrow('fk violation');
+    });
   });
 
   describe('refresh', () => {
@@ -239,6 +291,44 @@ describe('AuthService', () => {
         expect.objectContaining({ where: { refreshTokenHash: 'hash' }, lock: { mode: 'pessimistic_write' } }),
       );
       expect(emSave).toHaveBeenCalledTimes(2);
+    });
+
+    it('on revoked-session reuse: bulk-revokes active sessions, logs audit with null actor + suspectedReuse, and throws', async () => {
+      jest.spyOn(service as any, 'hashRefreshToken').mockReturnValue('hash');
+      jest.spyOn(service as any, 'constantTimeCompare').mockReturnValue(true);
+      mockJwtService.verify.mockReturnValue({
+        sub: 'u1', email: 'u@x.com', tokenType: 'refresh', exp: Date.now() / 1000 + 9999,
+      });
+      const updateExecute = jest.fn().mockResolvedValue({ affected: 2 });
+      const qb: any = {
+        update: jest.fn().mockReturnThis(),
+        set: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        execute: updateExecute,
+      };
+      const em: any = {
+        findOne: jest.fn().mockResolvedValue({
+          id: 's1', userId: 'u1', refreshTokenHash: 'hash', revokedAt: new Date(),
+          user: { id: 'u1', email: 'u@x.com', isActive: true, lockedUntil: null },
+        }),
+        getRepository: jest.fn().mockReturnValue({ createQueryBuilder: () => qb }),
+        save: jest.fn().mockResolvedValue(undefined),
+        create: jest.fn().mockReturnValue({ id: 's2' }),
+      };
+      const txMock = jest.fn(async (cb: any) => cb(em));
+      (sessionRepo as any).manager = { transaction: txMock };
+
+      await expect(service.refresh({ refresh_token: 't' })).rejects.toThrow(UnauthorizedException);
+
+      expect(updateExecute).toHaveBeenCalled();
+      expect(qb.where).toHaveBeenCalledWith('user_id = :userId AND revoked_at IS NULL', { userId: 'u1' });
+      expect(auditLogService.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'auth.refresh_token_reuse_detected',
+          actorUserId: null,
+          metadata: expect.objectContaining({ suspectedReuse: true, revokedSessionCount: 2 }),
+        }),
+      );
     });
   });
 

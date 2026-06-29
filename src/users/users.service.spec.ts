@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { UsersService } from './users.service';
 import { User } from 'src/modules/rbac/entities/user.entity';
 
@@ -9,9 +10,14 @@ describe('UsersService', () => {
   const mockRepository = {
     create: jest.fn(),
     save: jest.fn(),
-    find: jest.fn(),
     findOne: jest.fn(),
-    softDelete: jest.fn(),
+    update: jest.fn(),
+  };
+
+  const cacheManager = {
+    get: jest.fn(),
+    set: jest.fn(),
+    del: jest.fn().mockResolvedValue(undefined),
   };
 
   beforeEach(async () => {
@@ -22,6 +28,7 @@ describe('UsersService', () => {
           provide: getRepositoryToken(User),
           useValue: mockRepository,
         },
+        { provide: CACHE_MANAGER, useValue: cacheManager },
       ],
     }).compile();
 
@@ -66,22 +73,6 @@ describe('UsersService', () => {
       expect(mockRepository.create).toHaveBeenCalledWith(expect.objectContaining(createUserDto));
       expect(mockRepository.save).toHaveBeenCalledWith(createdUser);
       expect(result).toEqual(savedUser);
-    });
-  });
-
-  describe('findAll', () => {
-    it('should return an array of users', async () => {
-      const users = [
-        { id: 'uuid-1', name: 'User 1', email: 'user1@example.com' },
-        { id: 'uuid-2', name: 'User 2', email: 'user2@example.com' },
-      ];
-
-      mockRepository.find.mockResolvedValue(users);
-
-      const result = await service.findAll();
-
-      expect(mockRepository.find).toHaveBeenCalled();
-      expect(result).toEqual(users);
     });
   });
 
@@ -157,14 +148,39 @@ describe('UsersService', () => {
     });
   });
 
-  describe('remove', () => {
-    it('should soft delete a user by id', async () => {
-      const id = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
-      mockRepository.softDelete.mockResolvedValue({ affected: 1 });
+  describe('cache invalidation', () => {
+    it('updatePassword invalidates the user cache', async () => {
+      mockRepository.update.mockResolvedValue(undefined);
+      cacheManager.del.mockResolvedValue(undefined);
+      await service.updatePassword('u1', 'hash');
+      expect(mockRepository.update).toHaveBeenCalledWith({ id: 'u1' }, { password: 'hash' });
+      expect(cacheManager.del).toHaveBeenCalledWith('user:u1');
+    });
 
-      await service.remove(id);
+    it('resetFailedLogin invalidates the user cache', async () => {
+      mockRepository.update.mockResolvedValue(undefined);
+      cacheManager.del.mockResolvedValue(undefined);
+      await service.resetFailedLogin('u1');
+      expect(cacheManager.del).toHaveBeenCalledWith('user:u1');
+    });
 
-      expect(mockRepository.softDelete).toHaveBeenCalledWith(id);
+    it('recordFailedLogin invalidates the user cache', async () => {
+      const em = {
+        increment: jest.fn().mockResolvedValue(undefined),
+        findOne: jest.fn().mockResolvedValue({
+          id: 'u1',
+          failedLoginAttempts: 1,
+          lockedUntil: null,
+        }),
+        save: jest.fn().mockResolvedValue(undefined),
+      };
+      (mockRepository as any).manager = {
+        transaction: jest.fn(async (cb: any) => cb(em)),
+      };
+      cacheManager.del.mockResolvedValue(undefined);
+      await service.recordFailedLogin('u1');
+      expect(cacheManager.del).toHaveBeenCalledWith('user:u1');
     });
   });
+
 });

@@ -3,11 +3,13 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { FeatureService } from './feature.service';
 import { Feature } from '../entities/feature.entity';
+import { RbacService } from './rbac.service';
 
 describe('FeatureService', () => {
     let service: FeatureService;
     let mockFeatureRepo: any;
     let mockDataSource: any;
+    let mockRbacService: any;
 
     beforeEach(async () => {
         const mockQueryBuilder = {
@@ -33,11 +35,16 @@ describe('FeatureService', () => {
             createQueryRunner: jest.fn(),
         };
 
+        mockRbacService = {
+            invalidateAllRoles: jest.fn().mockResolvedValue(undefined),
+        };
+
         const module: TestingModule = await Test.createTestingModule({
             providers: [
                 FeatureService,
                 { provide: getRepositoryToken(Feature), useValue: mockFeatureRepo },
                 { provide: DataSource, useValue: mockDataSource },
+                { provide: RbacService, useValue: mockRbacService },
             ],
         }).compile();
 
@@ -76,5 +83,41 @@ describe('FeatureService', () => {
 
         mockFeatureRepo.delete.mockRejectedValue(error);
         await expect(service.remove('1')).rejects.toThrow();
+    });
+
+    it('should invalidate all role caches after updating a feature', async () => {
+        mockFeatureRepo.update.mockResolvedValue({ affected: 1 });
+        mockFeatureRepo.findOne.mockResolvedValue({ id: '1', key: 'test' });
+
+        await service.update('1', { name: 'Updated' });
+
+        expect(mockRbacService.invalidateAllRoles).toHaveBeenCalledTimes(1);
+    });
+
+    it('should not invalidate caches when feature update targets a missing feature', async () => {
+        mockFeatureRepo.update.mockResolvedValue({ affected: 0 });
+
+        await expect(service.update('1', { name: 'Updated' })).rejects.toThrow();
+
+        expect(mockRbacService.invalidateAllRoles).not.toHaveBeenCalled();
+    });
+
+    it('should invalidate all role caches after removing a feature', async () => {
+        mockFeatureRepo.delete.mockResolvedValue(undefined);
+
+        await service.remove('1');
+
+        expect(mockRbacService.invalidateAllRoles).toHaveBeenCalledTimes(1);
+    });
+
+    it('should not invalidate caches when feature removal fails with FK violation', async () => {
+        const error = new Error('FK violation');
+        (error as any).code = '23503';
+
+        mockFeatureRepo.delete.mockRejectedValue(error);
+
+        await expect(service.remove('1')).rejects.toThrow();
+
+        expect(mockRbacService.invalidateAllRoles).not.toHaveBeenCalled();
     });
 });

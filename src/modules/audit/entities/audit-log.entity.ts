@@ -15,6 +15,7 @@ import { User } from '../../rbac/entities/user.entity';
 @Index(['actorUserId', 'createdAt'])
 @Index(['entityType', 'entityId'])
 @Index(['action', 'createdAt'])
+@Index(['correlationId'], { where: '"correlation_id" IS NOT NULL' })
 export class AuditLog {
   @PrimaryGeneratedColumn('uuid')
   id: string;

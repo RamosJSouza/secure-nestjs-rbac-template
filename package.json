@@ -41,7 +41,6 @@
     "@nestjs/mapped-types": "2.1.0",
     "@nestjs/passport": "11.0.5",
     "@nestjs/platform-express": "11.1.27",
-    "@nestjs/schedule": "6.1.1",
     "@nestjs/swagger": "11.2.6",
     "@nestjs/terminus": "^11.0.0",
     "@nestjs/throttler": "^6.5.0",
@@ -55,7 +54,6 @@
     "helmet": "^8.1.0",
     "joi": "^18.0.2",
     "keyv": "^5.6.0",
-    "nest-resend": "^3.1.0",
     "nestjs-pino": "^4.5.0",
     "passport": "0.7.0",
     "passport-jwt": "4.0.1",
@@ -65,7 +63,6 @@
     "pino-http": "^11.0.0",
     "redis": "^5.10.0",
     "reflect-metadata": "0.2.2",
-    "resend": "^6.9.2",
     "rimraf": "6.1.2",
     "rxjs": "7.8.2",
     "swagger-ui-express": "5.0.1",
@@ -131,7 +128,6 @@
       "^@/(.*)$": "<rootDir>/$1",
       "^@auth/(.*)$": "<rootDir>/auth/$1",
       "^@users/(.*)$": "<rootDir>/users/$1",
-      "^@tasks/(.*)$": "<rootDir>/tasks/$1",
       "^@config/(.*)$": "<rootDir>/config/$1"
     }
   },
