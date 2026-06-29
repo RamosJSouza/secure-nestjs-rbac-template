@@ -115,7 +115,9 @@ It reflects patterns used in environments where:
 
 ## Architecture Constraints
 
-- Single-tenant (Organization entity placeholder only)
+- Single-tenant (no organization scoping in audit or RBAC)
+- Async audit via BullMQ when `REDIS_HOST` is set; synchronous fallback otherwise
+- Scheduled purge: expired sessions + audit logs older than `AUDIT_RETENTION_DAYS` (default 90)
 - Swagger intentionally exposed for integration workflows
 - Migrations only — no schema sync in production
 
