@@ -3,7 +3,6 @@ import {
   NestInterceptor,
   ExecutionContext,
   CallHandler,
-  Logger,
 } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { tap } from 'rxjs/operators';
@@ -20,8 +19,6 @@ interface AuditRequest {
 
 @Injectable()
 export class AuditInterceptor implements NestInterceptor {
-  private readonly logger = new Logger(AuditInterceptor.name);
-
   constructor(
     private readonly reflector: Reflector,
     private readonly auditLogService: AuditLogService,
@@ -56,18 +53,14 @@ export class AuditInterceptor implements NestInterceptor {
     const ip = req?.ip ?? req?.socket?.remoteAddress;
     const userAgent = req?.get?.('user-agent');
     const entityId = this.resolveEntityId(context, options, result);
-    this.auditLogService
-      .log({
-        action: options.action,
-        entityType: options.entityType,
-        entityId: entityId ?? undefined,
-        ip,
-        userAgent,
-        metadata: this.buildMetadata(context, result),
-      })
-      .catch((err: unknown) => {
-        this.logger.error(`Failed to write audit log: ${(err as { message?: string })?.message ?? err}`);
-      });
+    void this.auditLogService.log({
+      action: options.action,
+      entityType: options.entityType,
+      entityId: entityId ?? undefined,
+      ip,
+      userAgent,
+      metadata: this.buildMetadata(req, result),
+    });
   }
 
   private resolveEntityId(
@@ -103,7 +96,7 @@ export class AuditInterceptor implements NestInterceptor {
   }
 
   private buildMetadata(
-    context: ExecutionContext,
+    req: AuditRequest | undefined,
     result: unknown,
   ): Record<string, unknown> {
     const metadata: Record<string, unknown> = {};
@@ -116,7 +109,6 @@ export class AuditInterceptor implements NestInterceptor {
     }
 
     if (!metadata.permissionIds) {
-      const req = context.switchToHttp().getRequest<AuditRequest>();
       const bodyPermissionIds = req?.body?.permissionIds;
       if (Array.isArray(bodyPermissionIds)) {
         metadata.permissionIds = bodyPermissionIds;
