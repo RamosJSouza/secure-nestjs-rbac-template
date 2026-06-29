@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository, EntityManager } from 'typeorm';
+import { Repository, EntityManager } from 'typeorm';
 import { createHash, timingSafeEqual, randomUUID } from 'crypto';
 import { compare, hash } from 'bcryptjs';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
@@ -52,66 +52,32 @@ export class AuthService {
     userAgent?: string,
   ): Promise<void> {
     const userId = reusedSession.userId;
-    const sessionFamilyIds = await this.getSessionFamilyIds(reusedSession);
 
     const repo = em.getRepository(Session);
     const result = await repo
       .createQueryBuilder()
       .update(Session)
       .set({ revokedAt: () => 'NOW()' })
-      .where('user_id = :userId', { userId })
+      .where('user_id = :userId AND revoked_at IS NULL', { userId })
       .execute();
 
     this.logger.warn(
-      `Refresh token reuse detected for user ${userId}, session ${reusedSession.id}. Revoked ${result.affected ?? 0} sessions.`,
+      `Refresh token reuse detected for user ${userId}, session ${reusedSession.id}. Revoked ${result.affected ?? 0} active sessions.`,
     );
 
     await this.auditLogService.log({
       action: 'auth.refresh_token_reuse_detected',
       entityType: 'Session',
       entityId: reusedSession.id,
-      actorUserId: userId,
+      actorUserId: null,
       metadata: {
         reusedSessionId: reusedSession.id,
+        suspectedReuse: true,
         revokedSessionCount: result.affected ?? 0,
-        sessionFamilyIds,
       },
       ip: ip ?? undefined,
       userAgent: userAgent ?? undefined,
     });
-  }
-
-  private async getSessionFamilyIds(session: Session): Promise<string[]> {
-    const ids: string[] = [session.id];
-    const visited = new Set<string>([session.id]);
-
-    let current: Session | null = session;
-    while (current?.rotatedFromSessionId) {
-      const parent = await this.sessionRepository.findOne({
-        where: { id: current.rotatedFromSessionId },
-      });
-      if (!parent || visited.has(parent.id)) break;
-      ids.push(parent.id);
-      visited.add(parent.id);
-      current = parent;
-    }
-
-    let toVisit = [...ids];
-    while (toVisit.length > 0) {
-      const children = await this.sessionRepository.find({
-        where: { rotatedFromSessionId: In(toVisit) },
-      });
-      toVisit = [];
-      for (const c of children) {
-        if (!visited.has(c.id)) {
-          visited.add(c.id);
-          ids.push(c.id);
-          toVisit.push(c.id);
-        }
-      }
-    }
-
-    return ids;
   }
 
   private constantTimeCompare(a: string, b: string): boolean {

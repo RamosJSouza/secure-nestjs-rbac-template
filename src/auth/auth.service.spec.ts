@@ -261,6 +261,44 @@ describe('AuthService', () => {
       );
       expect(emSave).toHaveBeenCalledTimes(2);
     });
+
+    it('on revoked-session reuse: bulk-revokes active sessions, logs audit with null actor + suspectedReuse, and throws', async () => {
+      jest.spyOn(service as any, 'hashRefreshToken').mockReturnValue('hash');
+      jest.spyOn(service as any, 'constantTimeCompare').mockReturnValue(true);
+      mockJwtService.verify.mockReturnValue({
+        sub: 'u1', email: 'u@x.com', tokenType: 'refresh', exp: Date.now() / 1000 + 9999,
+      });
+      const updateExecute = jest.fn().mockResolvedValue({ affected: 2 });
+      const qb: any = {
+        update: jest.fn().mockReturnThis(),
+        set: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        execute: updateExecute,
+      };
+      const em: any = {
+        findOne: jest.fn().mockResolvedValue({
+          id: 's1', userId: 'u1', refreshTokenHash: 'hash', revokedAt: new Date(),
+          user: { id: 'u1', email: 'u@x.com', isActive: true, lockedUntil: null },
+        }),
+        getRepository: jest.fn().mockReturnValue({ createQueryBuilder: () => qb }),
+        save: jest.fn().mockResolvedValue(undefined),
+        create: jest.fn().mockReturnValue({ id: 's2' }),
+      };
+      const txMock = jest.fn(async (cb: any) => cb(em));
+      (sessionRepo as any).manager = { transaction: txMock };
+
+      await expect(service.refresh({ refresh_token: 't' })).rejects.toThrow(UnauthorizedException);
+
+      expect(updateExecute).toHaveBeenCalled();
+      expect(qb.where).toHaveBeenCalledWith('user_id = :userId AND revoked_at IS NULL', { userId: 'u1' });
+      expect(auditLogService.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'auth.refresh_token_reuse_detected',
+          actorUserId: null,
+          metadata: expect.objectContaining({ suspectedReuse: true, revokedSessionCount: 2 }),
+        }),
+      );
+    });
   });
 
   describe('logout', () => {
