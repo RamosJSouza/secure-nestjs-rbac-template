@@ -1,10 +1,14 @@
+import { InjectQueue } from '@nestjs/bullmq';
 import {
   Injectable,
   Logger,
   BeforeApplicationShutdown,
   OnApplicationShutdown,
+  Optional,
 } from '@nestjs/common';
+import { Queue } from 'bullmq';
 import { DataSource } from 'typeorm';
+import { AUDIT_LOG_QUEUE } from '@/modules/audit/audit-queue.constants';
 
 const SHUTDOWN_TIMEOUT_MS = 10_000;
 
@@ -22,7 +26,10 @@ export class GracefulShutdownService
   private readonly logger = new Logger(GracefulShutdownService.name);
   private forceExitTimer: ReturnType<typeof setTimeout> | null = null;
 
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(
+    private readonly dataSource: DataSource,
+    @Optional() @InjectQueue(AUDIT_LOG_QUEUE) private readonly auditQueue?: Queue,
+  ) {}
 
   async beforeApplicationShutdown(signal?: string): Promise<void> {
     this.logger.log(`Shutdown signal received: ${signal ?? 'unknown'}`);
@@ -37,6 +44,11 @@ export class GracefulShutdownService
 
   async onApplicationShutdown(): Promise<void> {
     try {
+      if (this.auditQueue) {
+        await this.auditQueue.close();
+        this.logger.log('Audit log queue closed');
+      }
+
       if (this.dataSource?.isInitialized) {
         await this.dataSource.destroy();
         this.logger.log('Database connection closed');
