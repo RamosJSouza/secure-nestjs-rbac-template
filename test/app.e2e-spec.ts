@@ -45,10 +45,10 @@ describe('AppModule e2e (I3)', () => {
         .toString();
     }
 
-    const { dataSourceOptions } = await import('../src/config/database');
+    const { buildDataSourceOptions } = await import('../src/config/database.options');
     const { AppModule } = await import('../src/app.module');
 
-    const ds = new DataSource({ ...dataSourceOptions, synchronize: false });
+    const ds = new DataSource({ ...buildDataSourceOptions(), synchronize: false });
     await ds.initialize();
     await ds.runMigrations({ transaction: 'each' });
     await seedRbac(ds);
