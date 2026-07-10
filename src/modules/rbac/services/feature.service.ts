@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException, Logger } from '@nestjs/common';
+import { Injectable, ConflictException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Feature } from '../entities/feature.entity';
@@ -6,6 +6,7 @@ import { CreateFeatureDto, UpdateFeatureDto, QueryFeatureDto } from '../dto/feat
 import { RbacService } from './rbac.service';
 import { handlePgConstraintError } from '@/common/utils/pg-constraint-error.util';
 import { applyActiveFilter, applyPagination } from '@/common/utils/pagination-query.util';
+import { assertFound, ensureAffected, safeDelete } from '../utils/rbac-crud.util';
 
 @Injectable()
 export class FeatureService {
@@ -57,41 +58,24 @@ export class FeatureService {
             relations: ['permissions'],
         });
 
-        if (!feature) {
-            throw new NotFoundException(`Feature with ID "${id}" not found`);
-        }
-
-        return feature;
+        return assertFound(feature, 'Feature', id);
     }
 
     async update(id: string, dto: UpdateFeatureDto): Promise<Feature> {
         const result = await this.featureRepository.update(id, dto);
-
-        if (result.affected === 0) {
-            throw new NotFoundException(`Feature ${id} not found`);
-        }
+        ensureAffected(result, 'Feature', id);
 
         await this.rbacService.invalidateAllRoles();
         return this.findOne(id);
     }
 
     async remove(id: string): Promise<void> {
-        try {
-            const result = await this.featureRepository.delete(id);
-            if (result.affected === 0) {
-                throw new NotFoundException(`Feature with ID "${id}" not found`);
-            }
-        } catch (err) {
-            if (err instanceof NotFoundException) {
-                throw err;
-            }
-            handlePgConstraintError(err, {
-                onForeignKey: () => {
-                    throw new ConflictException('Cannot delete feature with existing permissions assigned to roles');
-                },
-            });
-        }
-
+        await safeDelete(
+            this.featureRepository,
+            id,
+            'Feature',
+            'Cannot delete feature with existing permissions assigned to roles',
+        );
         await this.rbacService.invalidateAllRoles();
     }
 }

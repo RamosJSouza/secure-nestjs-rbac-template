@@ -24,6 +24,7 @@ import { Role } from '@/modules/rbac/entities/role.entity';
 import { AuditLogService } from '@/modules/audit/audit-log.service';
 import { INVALID_CREDENTIALS_MESSAGE } from './auth.constants';
 import { getErrorMessage } from '@/common/utils/error-message.util';
+import { SessionRevocationPort } from '@/common/ports/session-revocation.port';
 
 const ACCESS_TOKEN_EXPIRES = '15m';
 const ACCESS_TOKEN_EXPIRES_MS = 15 * 60 * 1000;
@@ -33,7 +34,7 @@ const REFRESH_TOKEN_DAYS = 7;
 type TokenUser = Pick<User, 'id' | 'email' | 'roleId'>;
 
 @Injectable()
-export class AuthService {
+export class AuthService implements SessionRevocationPort {
   private readonly logger = new Logger(AuthService.name);
 
   constructor(

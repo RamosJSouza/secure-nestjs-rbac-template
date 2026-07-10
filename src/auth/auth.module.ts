@@ -10,6 +10,7 @@ import { AuthController } from './auth.controller';
 import { Session } from '@/modules/auth/entities/session.entity';
 import { Role } from '@/modules/rbac/entities/role.entity';
 import { assertValidJwtKeyPair } from '@/common/utils/jwt-keys.util';
+import { SESSION_REVOCATION_PORT } from '@/common/ports/session-revocation.port';
 
 @Module({
   imports: [
@@ -34,8 +35,12 @@ import { assertValidJwtKeyPair } from '@/common/utils/jwt-keys.util';
     }),
     UsersModule,
   ],
-  providers: [AuthService, JwtStrategy],
-  exports: [AuthService, JwtModule, PassportModule],
+  providers: [
+    AuthService,
+    JwtStrategy,
+    { provide: SESSION_REVOCATION_PORT, useExisting: AuthService },
+  ],
+  exports: [AuthService, JwtModule, PassportModule, SESSION_REVOCATION_PORT],
   controllers: [AuthController],
 })
 export class AuthModule {}
