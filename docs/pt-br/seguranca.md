@@ -37,6 +37,6 @@
 - `ALLOWED_ORIGINS` deve listar URLs permitidas do frontend.
 - Credenciais do seed devem ser alteradas após o primeiro deploy.
 
-## Single-Tenancy
+## Inquilinagem Única
 
 Este template é **single-tenant**. `MULTI_TENANT=true` é rejeitado na inicialização (tanto por um guard `assertSingleTenant()` antecipado quanto pelo schema Joi de configuração) porque Row-Level Security (RLS) do PostgreSQL e um wrapper `withTenant` não estão implementados — permitir multi-tenancy silenciosamente vazaria dados entre inquilinos. Para habilitar multi-tenancy, implemente RLS usando uma coluna `organization_id` mais um wrapper `withTenant` (combinado com cláusulas `WHERE organization_id`) antes de definir `MULTI_TENANT=true`.
