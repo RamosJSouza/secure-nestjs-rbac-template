@@ -540,6 +540,7 @@ describe('AuthService', () => {
       (sessionRepo as any).manager = { transaction: jest.fn(async (cb: any) => cb(em)) };
 
       await expect(service.refresh({ refresh_token: 't' })).rejects.toThrow(UnauthorizedException);
+      expect(em.findOne).toHaveBeenNthCalledWith(2, User, expect.objectContaining({ withDeleted: true }));
       expect(bulkExecute).toHaveBeenCalled();
     });
   });
