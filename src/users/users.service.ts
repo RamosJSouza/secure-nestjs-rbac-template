@@ -1,4 +1,4 @@
-import { Injectable, Inject, ConflictException } from '@nestjs/common';
+import { Injectable, Inject, ConflictException, UnauthorizedException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
@@ -84,7 +84,7 @@ export class UsersService {
     const result = await this.usersRepository.manager.transaction(async (em) => {
       await em.increment(User, { id: userId }, 'failedLoginAttempts', 1);
       const updated = await em.findOne(User, { where: { id: userId } });
-      if (!updated) throw new Error('User not found');
+      if (!updated) throw new UnauthorizedException('Invalid credentials');
       const now = new Date();
       const shouldLock =
         updated.failedLoginAttempts >= LOCKOUT_THRESHOLD &&
@@ -115,8 +115,9 @@ export class UsersService {
     await this.invalidateUserCache(userId);
   }
 
-  async setActive(userId: string, active: boolean): Promise<void> {
-    await this.usersRepository.update({ id: userId }, { isActive: active });
+  async setActive(userId: string, active: boolean): Promise<number> {
+    const result = await this.usersRepository.update({ id: userId }, { isActive: active });
     await this.invalidateUserCache(userId);
+    return result.affected ?? 0;
   }
 }

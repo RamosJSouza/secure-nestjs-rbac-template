@@ -87,9 +87,7 @@ export class AuthService {
     );
   }
 
-  // Public: chamado por UserAdminService (Task 7) para revogar+denylista em massa
-  // ao desativar um utilizador. Os callers internos (changePassword, logoutAll,
-  // ramo de reuso) continuam a funcionar sem alteração.
+  // Exposed for UserAdminService mass-revocation on user deactivation.
   async revokeAllUserSessions(
     userId: string,
     repo: Repository<Session> = this.sessionRepository,
@@ -142,11 +140,7 @@ export class AuthService {
   ): Promise<{ email: string; access_token: string; refresh_token: string }> {
     const user = await this.usersService.findOneWithPassword(dto.email);
 
-    if (!user) {
-      throw new UnauthorizedException(INVALID_CREDENTIALS_MESSAGE);
-    }
-
-    if (!user.isActive) {
+    if (!user || !user.isActive) {
       throw new UnauthorizedException(INVALID_CREDENTIALS_MESSAGE);
     }
 
@@ -215,7 +209,6 @@ export class AuthService {
 
       if (session.revokedAt) {
         if (session.rotatedToSessionId) {
-          // Legitimate prior rotation: the token was already replaced.
           throw new UnauthorizedException('Refresh token already rotated');
         }
         const revokedCount = await this.revokeAllUserSessions(
@@ -247,12 +240,22 @@ export class AuthService {
       });
 
       if (!user || user.deletedAt || !user.isActive || (user.lockedUntil && user.lockedUntil > now)) {
+        let reason: string;
+        if (!user) {
+          reason = 'missing';
+        } else if (user.deletedAt) {
+          reason = 'deleted';
+        } else if (!user.isActive) {
+          reason = 'inactive';
+        } else {
+          reason = 'locked';
+        }
         const revokedCount = await this.revokeAllUserSessions(
           session.userId,
           em.getRepository(Session),
         );
         this.logger.warn(
-          `Refresh denied for user ${session.userId} (deleted=${!!user?.deletedAt}, inactive=${user ? !user.isActive : 'n/a'}, locked=${!!(user?.lockedUntil && user.lockedUntil > now)}). Revoked ${revokedCount} active sessions.`,
+          `Refresh denied for user ${session.userId} (reason=${reason}). Revoked ${revokedCount} active sessions.`,
         );
         return {
           kind: 'denied' as const,

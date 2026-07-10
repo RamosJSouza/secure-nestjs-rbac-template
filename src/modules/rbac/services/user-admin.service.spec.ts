@@ -10,7 +10,7 @@ describe('UserAdminService', () => {
   let authService: { revokeAllUserSessions: jest.Mock };
 
   beforeEach(async () => {
-    usersService = { findById: jest.fn(), setActive: jest.fn().mockResolvedValue(undefined) };
+    usersService = { findById: jest.fn(), setActive: jest.fn().mockResolvedValue(1) };
     authService = { revokeAllUserSessions: jest.fn().mockResolvedValue(3) };
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -26,6 +26,13 @@ describe('UserAdminService', () => {
     usersService.findById.mockResolvedValue(null);
     await expect(service.setUserActive('nope', false)).rejects.toThrow(NotFoundException);
     expect(usersService.setActive).not.toHaveBeenCalled();
+    expect(authService.revokeAllUserSessions).not.toHaveBeenCalled();
+  });
+
+  it('throws NotFoundException when setActive affects zero rows', async () => {
+    usersService.findById.mockResolvedValue({ id: 'u1' });
+    usersService.setActive.mockResolvedValue(0);
+    await expect(service.setUserActive('u1', false)).rejects.toThrow(NotFoundException);
     expect(authService.revokeAllUserSessions).not.toHaveBeenCalled();
   });
 

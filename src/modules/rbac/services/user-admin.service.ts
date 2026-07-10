@@ -14,10 +14,12 @@ export class UserAdminService {
     if (!user) {
       throw new NotFoundException('User not found');
     }
-    await this.usersService.setActive(userId, isActive);
+    const affected = await this.usersService.setActive(userId, isActive);
+    if (affected === 0) {
+      throw new NotFoundException('User not found');
+    }
     if (!isActive) {
-      // Revoke + denylist all active sessions immediately so access/refresh tokens stop working
-      // without waiting for the next refresh (which would also reject via the VULN-3 guard).
+      // Revoke + denylist immediately so tokens stop working without waiting for the next refresh.
       await this.authService.revokeAllUserSessions(userId);
     }
     return { id: userId, isActive };
