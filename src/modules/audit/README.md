@@ -28,22 +28,9 @@ Global interceptor that:
 - On success: calls `AuditLogService.log` with action, entityType, entityId, metadata
 - On error: does not audit (mutation did not occur)
 
-### BaseAuditService
+### Manual audit (non-HTTP flows)
 
-Abstract base for services that need manual audit (e.g. non-HTTP flows, custom metadata):
-
-```ts
-export class MyService extends BaseAuditService {
-  constructor(auditLogService: AuditLogService) {
-    super(auditLogService);
-  }
-
-  async someBackgroundJob() {
-    await this.doSomething();
-    await this.auditLog({ action: 'custom.action', entityType: 'Entity', entityId: '...' });
-  }
-}
-```
+For flows outside `@Auditable` (e.g. auth events in `AuthService`), inject `AuditLogService` and call `log()` directly.
 
 ## Example Integration
 

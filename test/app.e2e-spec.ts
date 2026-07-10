@@ -58,6 +58,7 @@ describe('AppModule e2e (I3)', () => {
       imports: [AppModule],
     }).compile();
     app = moduleRef.createNestApplication();
+    app.setGlobalPrefix(process.env.API_PREFIX ?? 'api');
     await app.init();
   }, 120_000);
 
@@ -67,18 +68,23 @@ describe('AppModule e2e (I3)', () => {
     await pg?.stop();
   });
 
-  it('GET / is public and returns 200', async () => {
-    const res = await request(app.getHttpServer()).get('/');
+  it('GET /api is public and returns 200', async () => {
+    const res = await request(app.getHttpServer()).get('/api');
     expect(res.status).toBe(200);
   });
 
-  it('GET /health/liveness is public', async () => {
-    const res = await request(app.getHttpServer()).get('/health/liveness');
+  it('GET /api/health/liveness is public', async () => {
+    const res = await request(app.getHttpServer()).get('/api/health/liveness');
     expect(res.status).toBe(200);
   });
 
-  it('protected route without token returns 401 (default-deny)', async () => {
+  it('GET /roles without prefix returns 404', async () => {
     const res = await request(app.getHttpServer()).get('/roles');
+    expect(res.status).toBe(404);
+  });
+
+  it('protected route /api/roles without token returns 401 (default-deny)', async () => {
+    const res = await request(app.getHttpServer()).get('/api/roles');
     expect(res.status).toBe(401);
   });
 });

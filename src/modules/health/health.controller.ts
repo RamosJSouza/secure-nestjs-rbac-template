@@ -5,6 +5,7 @@ import {
   TypeOrmHealthIndicator,
 } from '@nestjs/terminus';
 import { RedisHealthIndicator } from './indicators/redis.health';
+import { JwtKeysHealthIndicator } from './indicators/jwt-keys.health';
 import { Public } from '@/common/decorators/public.decorator';
 
 @Controller('health')
@@ -13,6 +14,7 @@ export class HealthController {
     private readonly health: HealthCheckService,
     private readonly db: TypeOrmHealthIndicator,
     private readonly redis: RedisHealthIndicator,
+    private readonly jwtKeys: JwtKeysHealthIndicator,
   ) {}
 
   @Get('liveness')
@@ -28,6 +30,7 @@ export class HealthController {
     return this.health.check([
       () => this.db.pingCheck('database'),
       () => this.redis.isHealthy('redis'),
+      () => this.jwtKeys.isHealthy('jwt_keys'),
     ]);
   }
 }

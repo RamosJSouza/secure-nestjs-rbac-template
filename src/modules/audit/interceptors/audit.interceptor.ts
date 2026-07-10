@@ -9,13 +9,7 @@ import { tap } from 'rxjs/operators';
 import { Reflector } from '@nestjs/core';
 import { AUDITABLE_KEY, AuditableOptions } from '../decorators/auditable.decorator';
 import { AuditLogService } from '../audit-log.service';
-
-interface AuditRequest {
-  ip?: string;
-  socket?: { remoteAddress?: string };
-  get?: (header: string) => string | undefined;
-  body?: { permissionIds?: unknown };
-}
+import { extractRequestContext, type RequestLike } from '@/common/utils/request-context.util';
 
 @Injectable()
 export class AuditInterceptor implements NestInterceptor {
@@ -49,9 +43,8 @@ export class AuditInterceptor implements NestInterceptor {
     options: AuditableOptions,
     result: unknown,
   ): void {
-    const req = context.switchToHttp().getRequest<AuditRequest>();
-    const ip = req?.ip ?? req?.socket?.remoteAddress;
-    const userAgent = req?.get?.('user-agent');
+    const req = context.switchToHttp().getRequest<RequestLike & { body?: { permissionIds?: unknown } }>();
+    const { ip, userAgent } = extractRequestContext(req);
     const entityId = this.resolveEntityId(context, options, result);
     void this.auditLogService.log({
       action: options.action,
@@ -96,7 +89,7 @@ export class AuditInterceptor implements NestInterceptor {
   }
 
   private buildMetadata(
-    req: AuditRequest | undefined,
+    req: (RequestLike & { body?: { permissionIds?: unknown } }) | undefined,
     result: unknown,
   ): Record<string, unknown> {
     const metadata: Record<string, unknown> = {};

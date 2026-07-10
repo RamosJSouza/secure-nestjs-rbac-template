@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
+import { NotFoundException } from '@nestjs/common';
 import { FeatureService } from './feature.service';
 import { Feature } from '../entities/feature.entity';
 import { RbacService } from './rbac.service';
@@ -8,7 +8,6 @@ import { RbacService } from './rbac.service';
 describe('FeatureService', () => {
     let service: FeatureService;
     let mockFeatureRepo: any;
-    let mockDataSource: any;
     let mockRbacService: any;
 
     beforeEach(async () => {
@@ -31,10 +30,6 @@ describe('FeatureService', () => {
             createQueryBuilder: jest.fn().mockReturnValue(mockQueryBuilder),
         };
 
-        mockDataSource = {
-            createQueryRunner: jest.fn(),
-        };
-
         mockRbacService = {
             invalidateAllRoles: jest.fn().mockResolvedValue(undefined),
         };
@@ -43,7 +38,6 @@ describe('FeatureService', () => {
             providers: [
                 FeatureService,
                 { provide: getRepositoryToken(Feature), useValue: mockFeatureRepo },
-                { provide: DataSource, useValue: mockDataSource },
                 { provide: RbacService, useValue: mockRbacService },
             ],
         }).compile();
@@ -69,12 +63,13 @@ describe('FeatureService', () => {
     });
 
     it('should calculate pagination correctly', async () => {
-        mockFeatureRepo.createQueryBuilder().getManyAndCount.mockResolvedValue([[], 0]);
+        const qb = mockFeatureRepo.createQueryBuilder();
+        qb.getManyAndCount.mockResolvedValue([[], 0]);
 
         await service.findAll({ page: 2, limit: 10 });
 
-        expect(mockFeatureRepo.createQueryBuilder().skip).toHaveBeenCalledWith(10);
-        expect(mockFeatureRepo.createQueryBuilder().take).toHaveBeenCalledWith(10);
+        expect(qb.skip).toHaveBeenCalledWith(10);
+        expect(qb.take).toHaveBeenCalledWith(10);
     });
 
     it('should throw error when deleting feature with dependencies', async () => {
@@ -103,11 +98,19 @@ describe('FeatureService', () => {
     });
 
     it('should invalidate all role caches after removing a feature', async () => {
-        mockFeatureRepo.delete.mockResolvedValue(undefined);
+        mockFeatureRepo.delete.mockResolvedValue({ affected: 1 });
 
         await service.remove('1');
 
         expect(mockRbacService.invalidateAllRoles).toHaveBeenCalledTimes(1);
+    });
+
+    it('should not invalidate caches when feature removal targets a missing feature', async () => {
+        mockFeatureRepo.delete.mockResolvedValue({ affected: 0 });
+
+        await expect(service.remove('missing')).rejects.toThrow(NotFoundException);
+
+        expect(mockRbacService.invalidateAllRoles).not.toHaveBeenCalled();
     });
 
     it('should not invalidate caches when feature removal fails with FK violation', async () => {

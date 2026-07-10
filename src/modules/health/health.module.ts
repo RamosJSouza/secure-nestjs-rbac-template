@@ -6,6 +6,7 @@ import {
   RedisHealthIndicator,
   RedisPinger,
 } from './indicators/redis.health';
+import { JwtKeysHealthIndicator } from './indicators/jwt-keys.health';
 import { getSharedRedisStore } from '@/config/cache-stores.factory';
 
 @Module({
@@ -23,6 +24,7 @@ import { getSharedRedisStore } from '@/config/cache-stores.factory';
       },
     },
     RedisHealthIndicator,
+    JwtKeysHealthIndicator,
   ],
 })
 export class HealthModule {}

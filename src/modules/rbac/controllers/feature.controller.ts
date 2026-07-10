@@ -13,14 +13,13 @@ import {
     ApiConflictResponse,
 } from '@nestjs/swagger';
 import { FeatureService } from '../services/feature.service';
-import { CreateFeatureDto, UpdateFeatureDto, QueryFeatureDto, FeatureResponseDto } from '../dto/feature.dto';
-import { JwtAuthGuard } from '@/auth/strategy/jwt-auth.guard';
+import { CreateFeatureDto, UpdateFeatureDto, QueryFeatureDto, FeatureResponseDto, PaginatedFeatureResponseDto } from '../dto/feature.dto';
 import { PermissionGuard, RequirePermissions } from '@/common/guards/permission.guard';
 
 @ApiTags('Features')
 @ApiBearerAuth()
 @Controller('features')
-@UseGuards(JwtAuthGuard, PermissionGuard)
+@UseGuards(PermissionGuard)
 export class FeatureController {
     constructor(private readonly featureService: FeatureService) { }
 
@@ -43,9 +42,9 @@ export class FeatureController {
     @RequirePermissions('rbac:view')
     @ApiOperation({
         summary: 'List all features',
-        description: 'Returns paginated list of features with optional search and filters.',
+        description: 'Returns paginated feature metadata without nested permissions. Use GET /features/:id for permissions.',
     })
-    @ApiOkResponse({ description: 'List of features', type: [FeatureResponseDto] })
+    @ApiOkResponse({ description: 'Paginated list of features', type: PaginatedFeatureResponseDto })
     @ApiBadRequestResponse({ description: 'Invalid query parameters' })
     @ApiUnauthorizedResponse({ description: 'Authentication required' })
     @ApiForbiddenResponse({ description: 'User lacks rbac:view permission' })

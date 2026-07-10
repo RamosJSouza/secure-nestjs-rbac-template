@@ -109,7 +109,7 @@ It reflects patterns used in environments where:
 - Docker health checks aligned with readiness
 - Graceful shutdown on SIGTERM
 - Connection pooling (configurable)
-- Horizontal scaling supported (stateless JWT)
+- Horizontal scaling supported (stateless JWT) when `REDIS_HOST` is set for shared cache and JWT denylist
 
 ---
 
@@ -119,7 +119,8 @@ It reflects patterns used in environments where:
 - Async audit via BullMQ when `REDIS_HOST` is set; synchronous fallback otherwise
 - Scheduled purge: expired sessions + audit logs older than `AUDIT_RETENTION_DAYS` (default 90)
 - Swagger intentionally exposed for integration workflows
-- Migrations only — no schema sync in production
+- Set `REDIS_HOST` in every production/replica deployment — without it, RBAC permission cache and JWT denylist are per-process (in-memory fallback)
+- Global API prefix defaults to `/api` (configurable via `API_PREFIX`)
 
 ---
 
@@ -129,7 +130,7 @@ It reflects patterns used in environments where:
 |-------|------------|
 | Framework | [NestJS](https://nestjs.com/) |
 | Database | PostgreSQL + [TypeORM](https://typeorm.io/) |
-| Cache | Redis |
+| Cache | Redis when `REDIS_HOST` is set; in-memory (per process) otherwise |
 | Auth | JWT RS256 |
 | Validation | Class Validator + Joi |
 | Logging | Pino |
@@ -182,6 +183,16 @@ yarn dev
 ```
 
 > **Important:** Change the seed admin password after first deploy.
+
+### Docker
+
+```bash
+# Local development (exposes DB/Redis ports)
+npm run docker:up
+
+# Production-like (no host port exposure)
+npm run docker:up:prod
+```
 
 ---
 

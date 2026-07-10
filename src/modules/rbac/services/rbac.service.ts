@@ -5,6 +5,18 @@ import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Cache } from 'cache-manager';
 import { ConfigService } from '@nestjs/config';
 import { RolePermission } from '../entities/role-permission.entity';
+import { isRedisConfigured } from '@/config/redis-connection.factory';
+import { getErrorMessage } from '@/common/utils/error-message.util';
+import {
+    incrementRbacGlobalEpoch,
+    readRbacGlobalEpoch,
+    RBAC_GLOBAL_EPOCH_KEY,
+} from '@/config/cache-stores.factory';
+
+interface CachedRolePermissions {
+    epoch: number;
+    permissions: string[];
+}
 
 @Injectable()
 export class RbacService {
@@ -24,6 +36,45 @@ export class RbacService {
         this.ttl = this.configService.get<number>('RBAC_CACHE_TTL', 300000);
     }
 
+    private usesSharedEpoch(): boolean {
+        return isRedisConfigured(this.configService);
+    }
+
+    private async getGlobalEpoch(): Promise<number> {
+        if (!this.usesSharedEpoch()) {
+            return this.invalidationEpoch;
+        }
+
+        try {
+            const stored = await readRbacGlobalEpoch();
+            if (stored !== null) {
+                this.invalidationEpoch = stored;
+                return stored;
+            }
+        } catch (error) {
+            this.logger.warn(`Failed to read ${RBAC_GLOBAL_EPOCH_KEY}, using local epoch`, getErrorMessage(error));
+        }
+
+        return this.invalidationEpoch;
+    }
+
+    private async bumpGlobalEpoch(): Promise<number> {
+        if (!this.usesSharedEpoch()) {
+            this.invalidationEpoch++;
+            return this.invalidationEpoch;
+        }
+
+        try {
+            const next = await incrementRbacGlobalEpoch();
+            this.invalidationEpoch = next;
+            return next;
+        } catch (error) {
+            this.invalidationEpoch++;
+            this.logger.warn(`Failed to bump ${RBAC_GLOBAL_EPOCH_KEY}, using local epoch`, getErrorMessage(error));
+            return this.invalidationEpoch;
+        }
+    }
+
     /**
      * Checks if a user (via role) has the required permissions.
      * Fail-safe: If cache fails, it falls back to DB.
@@ -35,23 +86,26 @@ export class RbacService {
 
         try {
             const userPermissions = await this.getPermissionsForRole(roleId);
-            return requiredPermissions.every(perm => userPermissions.includes(perm));
+            const permSet = new Set(userPermissions);
+            return requiredPermissions.every((perm) => permSet.has(perm));
         } catch (error) {
-            this.logger.error(`Critical RBAC error for role ${roleId}`, error.stack);
+            this.logger.error(`Critical RBAC error for role ${roleId}`, getErrorMessage(error));
             return false;
         }
     }
 
     async getPermissionsForRole(roleId: string): Promise<string[]> {
         const cacheKey = `rbac:role:${roleId}:permissions`;
+        let currentEpoch: number | undefined;
 
         try {
-            const cached = await this.cacheManager.get<string[]>(cacheKey);
-            if (cached) {
-                return cached;
+            currentEpoch = await this.getGlobalEpoch();
+            const cached = await this.cacheManager.get<CachedRolePermissions>(cacheKey);
+            if (cached && cached.epoch === currentEpoch) {
+                return cached.permissions;
             }
         } catch (error) {
-            this.logger.warn(`Redis cache get failed for ${cacheKey}, falling back to DB`, error.message);
+            this.logger.warn(`Redis cache get failed for ${cacheKey}, falling back to DB`, getErrorMessage(error));
         }
 
         if (this.pendingRequests.has(cacheKey)) {
@@ -59,7 +113,7 @@ export class RbacService {
         }
 
         const fetchPromise = (async () => {
-            const epoch = this.invalidationEpoch;
+            const epochSnapshot = this.invalidationEpoch;
             try {
                 const rolePermissions = await this.rolePermissionRepository.find({
                     where: { roleId },
@@ -81,9 +135,11 @@ export class RbacService {
                     (rp) => `${rp.permission.feature.key}:${rp.permission.action}`,
                 );
 
-                if (epoch === this.invalidationEpoch) {
-                    this.cacheManager.set(cacheKey, permissions, this.ttl).catch(err => {
-                        this.logger.warn(`Redis cache set failed for ${cacheKey}`, err.message);
+                if (epochSnapshot === this.invalidationEpoch) {
+                    const epoch = currentEpoch ?? (await this.getGlobalEpoch());
+                    const entry: CachedRolePermissions = { epoch, permissions };
+                    this.cacheManager.set(cacheKey, entry, this.ttl).catch((err: unknown) => {
+                        this.logger.warn(`Redis cache set failed for ${cacheKey}`, getErrorMessage(err));
                     });
                     this.cachedRoleKeys.add(cacheKey);
                 }
@@ -100,42 +156,24 @@ export class RbacService {
 
     async invalidateRoleCache(roleId: string): Promise<void> {
         const cacheKey = `rbac:role:${roleId}:permissions`;
-        this.invalidationEpoch++;
+        await this.bumpGlobalEpoch();
         this.pendingRequests.delete(cacheKey);
-
-        try {
-            await this.cacheManager.del(cacheKey);
-            this.cachedRoleKeys.delete(cacheKey);
-            this.logger.log(`Invalidated cache for role ${roleId}`);
-        } catch (error) {
-            this.logger.error(`Failed to invalidate cache for role ${roleId}`, error.stack);
-        }
+        this.cachedRoleKeys.delete(cacheKey);
+        this.logger.log(`Invalidated cache for role ${roleId}`);
     }
 
     /**
      * Invalidates every cached role permission set.
      * Used when a Feature key or Permission action changes, since the cached
      * `featureKey:action` strings become stale across all roles.
-     * Store-agnostic: iterates an in-memory registry of written keys instead of
-     * relying on a `keys()` API that Keyv stores do not uniformly expose.
-     * Never throws — failures are logged so a successful mutation is not turned into a 500.
      */
     async invalidateAllRoles(): Promise<void> {
-        this.invalidationEpoch++;
-        const keys = Array.from(this.cachedRoleKeys);
-
-        for (const cacheKey of keys) {
-            this.pendingRequests.delete(cacheKey);
-            try {
-                await this.cacheManager.del(cacheKey);
-            } catch (error) {
-                this.logger.error(`Failed to invalidate cache key ${cacheKey}`, error.stack);
-            }
-        }
-
+        await this.bumpGlobalEpoch();
+        const count = this.cachedRoleKeys.size;
+        this.pendingRequests.clear();
         this.cachedRoleKeys.clear();
-        if (keys.length > 0) {
-            this.logger.log(`Invalidated cache for all roles (${keys.length} keys)`);
+        if (count > 0) {
+            this.logger.log(`Invalidated cache for all roles (${count} keys)`);
         }
     }
 }

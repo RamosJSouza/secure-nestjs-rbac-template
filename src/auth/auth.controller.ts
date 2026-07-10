@@ -1,12 +1,12 @@
 import {
   Body,
   Controller,
+  Get,
   Post,
   HttpCode,
   HttpStatus,
   Req,
   UseGuards,
-  UnauthorizedException,
 } from '@nestjs/common';
 import type { ExecutionContext } from '@nestjs/common';
 import { Request } from 'express';
@@ -17,6 +17,7 @@ import { RegisterDto } from './dto/register.dto';
 import { RefreshDto } from './dto/refresh.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { LogoutDto } from './dto/logout.dto';
+import { SessionResponseDto } from './dto/session-response.dto';
 import { buildLoginThrottleKey } from './throttlers/login-throttle.util';
 import {
   ApiTags,
@@ -28,10 +29,10 @@ import {
   ApiUnauthorizedResponse,
   ApiForbiddenResponse,
 } from '@nestjs/swagger';
-import { JwtAuthGuard } from './strategy/jwt-auth.guard';
 import { PermissionGuard, RequirePermissions } from '@/common/guards/permission.guard';
 import { Public } from '@/common/decorators/public.decorator';
 import { Auditable } from '@/modules/audit/decorators/auditable.decorator';
+import { extractRequestContext, getClientIp } from '@/common/utils/request-context.util';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -52,7 +53,7 @@ export class AuthController {
     login: {
       limit: 10,
       ttl: 60_000,
-      getTracker: (req: Record<string, any>) => req.ip ?? req.socket?.remoteAddress ?? '',
+      getTracker: (req: Request) => getClientIp(req),
       generateKey: (ctx: ExecutionContext, tracker: string) => {
         const req = ctx.switchToHttp().getRequest();
         return buildLoginThrottleKey(tracker, req.body?.email);
@@ -60,8 +61,7 @@ export class AuthController {
     },
   })
   async login(@Body() dto: LoginDto, @Req() req: Request) {
-    const ip = req.ip ?? req.socket?.remoteAddress;
-    const userAgent = req.get('user-agent');
+    const { ip, userAgent } = extractRequestContext(req);
     return this.authService.login(dto, ip, userAgent);
   }
 
@@ -75,13 +75,11 @@ export class AuthController {
   @ApiOkResponse({ description: 'New access_token and refresh_token' })
   @ApiBadRequestResponse({ description: 'Invalid or expired refresh token' })
   async refresh(@Body() dto: RefreshDto, @Req() req: Request) {
-    const ip = req.ip ?? req.socket?.remoteAddress;
-    const userAgent = req.get('user-agent');
+    const { ip, userAgent } = extractRequestContext(req);
     return this.authService.refresh(dto, ip, userAgent);
   }
 
   @Post('logout')
-  @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth()
   @ApiOperation({
@@ -99,7 +97,6 @@ export class AuthController {
   }
 
   @Post('logout-all')
-  @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth()
   @ApiOperation({
@@ -113,8 +110,20 @@ export class AuthController {
     return { message: 'All sessions revoked' };
   }
 
+  @Get('sessions')
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'List active sessions',
+    description: 'Returns non-revoked, non-expired sessions for the authenticated user.',
+  })
+  @ApiOkResponse({ description: 'Active sessions', type: [SessionResponseDto] })
+  @ApiUnauthorizedResponse({ description: 'Authentication required' })
+  listSessions(@Req() req: Request & { user: { id: string } }) {
+    return this.authService.listSessions(req.user.id);
+  }
+
   @Post('register')
-  @UseGuards(JwtAuthGuard, PermissionGuard)
+  @UseGuards(PermissionGuard)
   @HttpCode(HttpStatus.CREATED)
   @ApiBearerAuth()
   @ApiTags('auth', 'Users')
@@ -133,7 +142,6 @@ export class AuthController {
   }
 
   @Post('change-password')
-  @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth()
   @ApiOperation({
@@ -146,10 +154,8 @@ export class AuthController {
   @Auditable('user.change_password', 'User', { entityIdFromResult: 'userId' })
   async changePassword(
     @Body() dto: ChangePasswordDto,
-    @Req() req: Request & { user?: { id: string } },
+    @Req() req: Request & { user: { id: string } },
   ) {
-    const userId = req.user?.id;
-    if (!userId) throw new UnauthorizedException('User not authenticated');
-    return this.authService.changePassword(userId, dto.currentPassword, dto.newPassword);
+    return this.authService.changePassword(req.user.id, dto.currentPassword, dto.newPassword);
   }
 }

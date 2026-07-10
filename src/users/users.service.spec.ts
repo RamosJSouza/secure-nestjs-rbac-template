@@ -74,6 +74,18 @@ describe('UsersService', () => {
       expect(mockRepository.save).toHaveBeenCalledWith(createdUser);
       expect(result).toEqual(savedUser);
     });
+
+    it('throws ConflictException on unique email violation', async () => {
+      const createUserDto = {
+        name: 'Test User',
+        email: 'dup@example.com',
+        password: 'hashedpassword123',
+      };
+      mockRepository.create.mockReturnValue(createUserDto);
+      mockRepository.save.mockRejectedValue(Object.assign(new Error('duplicate'), { code: '23505' }));
+
+      await expect(service.create(createUserDto)).rejects.toThrow('User already exists');
+    });
   });
 
   describe('findOne', () => {

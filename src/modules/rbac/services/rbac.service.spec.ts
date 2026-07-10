@@ -4,6 +4,35 @@ import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { ConfigService } from '@nestjs/config';
 import { RbacService } from './rbac.service';
 import { RolePermission } from '../entities/role-permission.entity';
+import * as cacheStoresFactory from '@/config/cache-stores.factory';
+
+jest.mock('@/config/cache-stores.factory', () => {
+    const actual = jest.requireActual('@/config/cache-stores.factory');
+    return {
+        ...actual,
+        readRbacGlobalEpoch: jest.fn(),
+        incrementRbacGlobalEpoch: jest.fn(),
+    };
+});
+
+const mockReadRbacGlobalEpoch = cacheStoresFactory.readRbacGlobalEpoch as jest.MockedFunction<
+    typeof cacheStoresFactory.readRbacGlobalEpoch
+>;
+const mockIncrementRbacGlobalEpoch = cacheStoresFactory.incrementRbacGlobalEpoch as jest.MockedFunction<
+    typeof cacheStoresFactory.incrementRbacGlobalEpoch
+>;
+
+function cached(permissions: string[], epoch = 0) {
+    return { epoch, permissions };
+}
+
+function mockRedisConfigured(config: { get: jest.Mock }) {
+    config.get.mockImplementation((key: string, defaultValue?: unknown) => {
+        if (key === 'REDIS_HOST') return 'redis';
+        if (key === 'RBAC_CACHE_TTL') return 300;
+        return defaultValue;
+    });
+}
 
 describe('RbacService', () => {
     let service: RbacService;
@@ -23,7 +52,10 @@ describe('RbacService', () => {
         };
 
         mockConfigService = {
-            get: jest.fn().mockReturnValue(300),
+            get: jest.fn((key: string, defaultValue?: unknown) => {
+                if (key === 'RBAC_CACHE_TTL') return 300;
+                return defaultValue;
+            }),
         };
 
         const module: TestingModule = await Test.createTestingModule({
@@ -45,6 +77,8 @@ describe('RbacService', () => {
         }).compile();
 
         service = module.get<RbacService>(RbacService);
+        mockReadRbacGlobalEpoch.mockReset();
+        mockIncrementRbacGlobalEpoch.mockReset();
     });
 
     it('should be defined', () => {
@@ -61,10 +95,8 @@ describe('RbacService', () => {
             const roleId = 'role-123';
             const requiredPermissions = ['test:view', 'test:edit'];
 
-            // Mock cache miss
             mockCacheManager.get.mockResolvedValue(null);
 
-            // Mock DB response
             mockRepository.find.mockResolvedValue([
                 { permission: { action: 'view', feature: { key: 'test' } } },
                 { permission: { action: 'edit', feature: { key: 'test' } } },
@@ -79,15 +111,20 @@ describe('RbacService', () => {
             const roleId = 'role-123';
             const requiredPermissions = ['test:view', 'test:admin'];
 
-            mockCacheManager.get.mockResolvedValue(['test:view']);
+            mockCacheManager.get.mockResolvedValue(cached(['test:view']));
 
             const result = await service.checkPermissions(roleId, requiredPermissions);
             expect(result).toBe(false);
         });
 
-        it('should use cached permissions', async () => {
+        it('should use cached permissions when epoch matches', async () => {
             const roleId = 'role-123';
-            mockCacheManager.get.mockResolvedValue(['test:view']);
+            mockCacheManager.get.mockImplementation(async (key: string) => {
+                if (key === 'rbac:role:role-123:permissions') {
+                    return cached(['test:view']);
+                }
+                return null;
+            });
 
             const result = await service.checkPermissions(roleId, ['test:view']);
             expect(result).toBe(true);
@@ -104,17 +141,46 @@ describe('RbacService', () => {
             const result = await service.getPermissionsForRole('role-123');
             expect(result).toEqual(['test:view']);
         });
+
+        it('refetches when cached epoch is stale', async () => {
+            mockCacheManager.get.mockImplementation(async (key: string) => {
+                if (key === 'rbac:role:role-123:permissions') {
+                    return cached(['stale:view'], 0);
+                }
+                return null;
+            });
+            mockRedisConfigured(mockConfigService);
+            mockReadRbacGlobalEpoch.mockResolvedValue(1);
+
+            mockRepository.find.mockResolvedValue([
+                { permission: { action: 'view', feature: { key: 'test' } } },
+            ]);
+
+            const result = await service.getPermissionsForRole('role-123');
+            expect(result).toEqual(['test:view']);
+            expect(mockRepository.find).toHaveBeenCalled();
+            expect(mockReadRbacGlobalEpoch).toHaveBeenCalled();
+            expect(mockCacheManager.get).not.toHaveBeenCalledWith('rbac:global:epoch', expect.anything());
+        });
     });
 
     describe('invalidateRoleCache', () => {
-        it('should delete keys from cache', async () => {
+        it('bumps epoch via Redis INCR and clears local tracking', async () => {
+            mockRedisConfigured(mockConfigService);
+            mockIncrementRbacGlobalEpoch.mockResolvedValue(3);
+
             await service.invalidateRoleCache('role-123');
-            expect(mockCacheManager.del).toHaveBeenCalledWith('rbac:role:role-123:permissions');
+
+            expect(mockIncrementRbacGlobalEpoch).toHaveBeenCalled();
+            expect(mockCacheManager.set).not.toHaveBeenCalledWith('rbac:global:epoch', expect.anything(), expect.anything());
         });
     });
 
     describe('invalidateAllRoles', () => {
-        it('should delete every previously registered role cache key', async () => {
+        it('bumps epoch via Redis INCR after roles were cached locally', async () => {
+            mockRedisConfigured(mockConfigService);
+            mockReadRbacGlobalEpoch.mockResolvedValue(0);
+            mockIncrementRbacGlobalEpoch.mockResolvedValue(1);
             mockCacheManager.get.mockResolvedValue(null);
             mockRepository.find.mockResolvedValue([
                 { permission: { action: 'view', feature: { key: 'test' } } },
@@ -125,8 +191,7 @@ describe('RbacService', () => {
 
             await service.invalidateAllRoles();
 
-            expect(mockCacheManager.del).toHaveBeenCalledWith('rbac:role:role-1:permissions');
-            expect(mockCacheManager.del).toHaveBeenCalledWith('rbac:role:role-2:permissions');
+            expect(mockIncrementRbacGlobalEpoch).toHaveBeenCalled();
         });
 
         it('should not throw when no role has been cached', async () => {
@@ -141,7 +206,8 @@ describe('RbacService', () => {
             );
 
             const pending = service.getPermissionsForRole('role-x');
-            await Promise.resolve();
+            await new Promise((resolve) => setImmediate(resolve));
+            expect(mockRepository.find).toHaveBeenCalled();
 
             await service.invalidateAllRoles();
 

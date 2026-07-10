@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
 import {
     ApiTags,
     ApiOperation,
@@ -13,15 +13,14 @@ import {
     ApiConflictResponse,
 } from '@nestjs/swagger';
 import { RoleService } from '../services/role.service';
-import { CreateRoleDto, UpdateRoleDto, AssignPermissionsDto, RoleResponseDto } from '../dto/role.dto';
-import { JwtAuthGuard } from '@/auth/strategy/jwt-auth.guard';
+import { CreateRoleDto, UpdateRoleDto, AssignPermissionsDto, RoleResponseDto, QueryRoleDto, PaginatedRoleResponseDto } from '../dto/role.dto';
 import { PermissionGuard, RequirePermissions } from '@/common/guards/permission.guard';
 import { Auditable } from '@/modules/audit/decorators/auditable.decorator';
 
 @ApiTags('Roles')
 @ApiBearerAuth()
 @Controller('roles')
-@UseGuards(JwtAuthGuard, PermissionGuard)
+@UseGuards(PermissionGuard)
 export class RoleController {
     constructor(private readonly roleService: RoleService) { }
 
@@ -45,13 +44,13 @@ export class RoleController {
     @RequirePermissions('rbac:view')
     @ApiOperation({
         summary: 'List all roles',
-        description: 'Returns all roles with their permissions. Requires rbac:view permission.',
+        description: 'Returns paginated role metadata without nested permissions. Use GET /roles/:id for the full permission graph.',
     })
-    @ApiOkResponse({ description: 'List of roles', type: [RoleResponseDto] })
+    @ApiOkResponse({ description: 'Paginated list of roles', type: PaginatedRoleResponseDto })
     @ApiUnauthorizedResponse({ description: 'Authentication required' })
     @ApiForbiddenResponse({ description: 'User lacks rbac:view permission' })
-    findAll() {
-        return this.roleService.findAll();
+    findAll(@Query() query: QueryRoleDto) {
+        return this.roleService.findAll(query);
     }
 
     @Get(':id')

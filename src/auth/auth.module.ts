@@ -9,6 +9,7 @@ import { JwtStrategy } from './strategy/jwt.strategy';
 import { AuthController } from './auth.controller';
 import { Session } from '@/modules/auth/entities/session.entity';
 import { Role } from '@/modules/rbac/entities/role.entity';
+import { assertValidJwtKeyPair } from '@/common/utils/jwt-keys.util';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { Role } from '@/modules/rbac/entities/role.entity';
         if (!privateKey || !publicKey) {
           throw new Error('PRIVATE_KEY and PUBLIC_KEY must be configured (RS256 JWT)');
         }
+        assertValidJwtKeyPair(privateKey, publicKey);
         return {
           privateKey,
           publicKey,

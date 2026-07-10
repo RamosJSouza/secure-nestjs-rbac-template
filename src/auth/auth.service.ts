@@ -8,8 +8,8 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, EntityManager } from 'typeorm';
-import { createHash, timingSafeEqual, randomUUID } from 'crypto';
+import { Repository, IsNull, MoreThan } from 'typeorm';
+import { createHash, randomUUID } from 'crypto';
 import { compare, hash } from 'bcryptjs';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Cache } from 'cache-manager';
@@ -17,14 +17,20 @@ import { UsersService } from 'src/users/users.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { RefreshDto } from './dto/refresh.dto';
+import { SessionResponseDto } from './dto/session-response.dto';
 import { Session } from '@/modules/auth/entities/session.entity';
 import { User } from '@/modules/rbac/entities/user.entity';
 import { Role } from '@/modules/rbac/entities/role.entity';
 import { AuditLogService } from '@/modules/audit/audit-log.service';
+import { INVALID_CREDENTIALS_MESSAGE } from './auth.constants';
+import { getErrorMessage } from '@/common/utils/error-message.util';
 
 const ACCESS_TOKEN_EXPIRES = '15m';
 const ACCESS_TOKEN_EXPIRES_MS = 15 * 60 * 1000;
 const REFRESH_TOKEN_EXPIRES = '7d';
+const REFRESH_TOKEN_DAYS = 7;
+
+type TokenUser = Pick<User, 'id' | 'email' | 'roleId'>;
 
 @Injectable()
 export class AuthService {
@@ -45,15 +51,31 @@ export class AuthService {
     return createHash('sha256').update(token).digest('hex');
   }
 
-  private async revokeSessionFamilyAndLogReuse(
-    reusedSession: Session,
-    em: EntityManager,
-    ip?: string,
-    userAgent?: string,
-  ): Promise<void> {
-    const userId = reusedSession.userId;
+  private buildTokenPair(user: TokenUser) {
+    const basePayload = { sub: user.id, email: user.email, roleId: user.roleId };
+    const accessJti = randomUUID();
+    const refreshJti = randomUUID();
+    const signOptions = { algorithm: 'RS256' as const };
 
-    const repo = em.getRepository(Session);
+    const accessToken = this.jwtService.sign(
+      { ...basePayload, tokenType: 'access', jti: accessJti },
+      { ...signOptions, expiresIn: ACCESS_TOKEN_EXPIRES },
+    );
+    const refreshToken = this.jwtService.sign(
+      { ...basePayload, tokenType: 'refresh', jti: refreshJti },
+      { ...signOptions, expiresIn: REFRESH_TOKEN_EXPIRES },
+    );
+
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + REFRESH_TOKEN_DAYS);
+
+    return { accessToken, refreshToken, refreshJti, expiresAt };
+  }
+
+  private async revokeAllUserSessions(
+    userId: string,
+    repo: Repository<Session> = this.sessionRepository,
+  ): Promise<number> {
     const result = await repo
       .createQueryBuilder()
       .update(Session)
@@ -61,35 +83,29 @@ export class AuthService {
       .where('user_id = :userId AND revoked_at IS NULL', { userId })
       .execute();
 
-    this.logger.warn(
-      `Refresh token reuse detected for user ${userId}, session ${reusedSession.id}. Revoked ${result.affected ?? 0} active sessions.`,
-    );
-
-    await this.auditLogService.log({
-      action: 'auth.refresh_token_reuse_detected',
-      entityType: 'Session',
-      entityId: reusedSession.id,
-      actorUserId: null,
-      metadata: {
-        reusedSessionId: reusedSession.id,
-        suspectedReuse: true,
-        revokedSessionCount: result.affected ?? 0,
-      },
-      ip: ip ?? undefined,
-      userAgent: userAgent ?? undefined,
-    });
+    return result.affected ?? 0;
   }
 
-  private constantTimeCompare(a: string, b: string): boolean {
-    if (a.length !== b.length) return false;
-    const bufA = Buffer.from(a, 'hex');
-    const bufB = Buffer.from(b, 'hex');
-    if (bufA.length !== bufB.length) return false;
-    try {
-      return timingSafeEqual(bufA, bufB);
-    } catch {
-      return false;
-    }
+  private async revokeSessionByRefreshHash(
+    userId: string,
+    refreshTokenHash: string,
+    repo: Repository<Session> = this.sessionRepository,
+  ): Promise<void> {
+    await repo
+      .createQueryBuilder()
+      .update(Session)
+      .set({ revokedAt: () => 'NOW()' })
+      .where(
+        'user_id = :userId AND refresh_token_hash = :hash AND revoked_at IS NULL',
+        { userId, hash: refreshTokenHash },
+      )
+      .execute();
+  }
+
+  private logAuditFireAndForget(payload: Parameters<AuditLogService['log']>[0]): void {
+    void Promise.resolve(this.auditLogService.log(payload)).catch((err: unknown) => {
+      this.logger.warn(`Audit log failed for ${payload.action}: ${getErrorMessage(err)}`);
+    });
   }
 
   async login(
@@ -100,38 +116,33 @@ export class AuthService {
     const user = await this.usersService.findOneWithPassword(dto.email);
 
     if (!user) {
-      throw new UnauthorizedException('Invalid credentials');
+      throw new UnauthorizedException(INVALID_CREDENTIALS_MESSAGE);
     }
 
     if (!user.isActive) {
-      throw new UnauthorizedException('User account is deactivated');
+      throw new UnauthorizedException(INVALID_CREDENTIALS_MESSAGE);
     }
 
     const now = new Date();
     if (user.lockedUntil && user.lockedUntil > now) {
-      throw new UnauthorizedException(
-        `Account locked due to too many failed attempts. Try again after ${user.lockedUntil.toISOString()}`,
-      );
+      throw new UnauthorizedException(INVALID_CREDENTIALS_MESSAGE);
     }
 
     const isValid = await compare(dto.password, user.password);
     if (!isValid) {
       const result = await this.usersService.recordFailedLogin(user.id);
       if (result.lockedUntil) {
-        await this.auditLogService.log({
+        this.logAuditFireAndForget({
           action: 'auth.account.locked',
           entityType: 'User',
           entityId: user.id,
           actorUserId: null,
           metadata: { email: user.email, failedAttempts: result.failedLoginAttempts },
-          ip: ip ?? undefined,
-          userAgent: userAgent ?? undefined,
+          ip,
+          userAgent,
         });
-        throw new UnauthorizedException(
-          `Account locked due to too many failed attempts. Try again after ${result.lockedUntil.toISOString()}`,
-        );
       }
-      throw new UnauthorizedException('Invalid credentials');
+      throw new UnauthorizedException(INVALID_CREDENTIALS_MESSAGE);
     }
 
     await this.usersService.resetFailedLogin(user.id);
@@ -143,14 +154,16 @@ export class AuthService {
     ip?: string,
     userAgent?: string,
   ): Promise<{ email: string; access_token: string; refresh_token: string }> {
-    const token = dto.refresh_token;
-    if (!token) {
-      throw new UnauthorizedException('Refresh token required');
-    }
-
-    let payload: { sub: string; email: string; roleId?: string; tokenType: 'access' | 'refresh'; jti?: string; exp: number };
+    let payload: {
+      sub: string;
+      email: string;
+      roleId?: string;
+      tokenType: 'access' | 'refresh';
+      jti?: string;
+      exp: number;
+    };
     try {
-      payload = this.jwtService.verify(token, { algorithms: ['RS256'] });
+      payload = this.jwtService.verify(dto.refresh_token, { algorithms: ['RS256'] });
     } catch {
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
@@ -159,9 +172,9 @@ export class AuthService {
       throw new UnauthorizedException('Not a refresh token');
     }
 
-    const tokenHash = this.hashRefreshToken(token);
+    const tokenHash = this.hashRefreshToken(dto.refresh_token);
 
-    return this.sessionRepository.manager.transaction(async (em) => {
+    const txResult = await this.sessionRepository.manager.transaction(async (em) => {
       const session = await em.findOne(Session, {
         where: { refreshTokenHash: tokenHash },
         relations: ['user'],
@@ -171,50 +184,69 @@ export class AuthService {
       if (!session) {
         throw new UnauthorizedException('Invalid refresh token');
       }
-      if (!this.constantTimeCompare(tokenHash, session.refreshTokenHash)) {
-        throw new UnauthorizedException('Invalid refresh token');
-      }
 
       const now = new Date();
+
       if (session.revokedAt) {
-        await this.revokeSessionFamilyAndLogReuse(session, em, ip, userAgent);
-        throw new UnauthorizedException('Refresh token reuse detected. All sessions have been revoked.');
+        const revokedCount = await this.revokeAllUserSessions(
+          session.userId,
+          em.getRepository(Session),
+        );
+
+        this.logger.warn(
+          `Refresh token reuse detected for user ${session.userId}, session ${session.id}. Revoked ${revokedCount} active sessions.`,
+        );
+
+        return {
+          kind: 'reuse' as const,
+          reusedSessionId: session.id,
+          userId: session.userId,
+          revokedCount,
+          ip,
+          userAgent,
+        };
       }
+
       if (session.expiresAt < now) {
         throw new UnauthorizedException('Refresh token expired');
       }
 
       const user = session.user;
-      if (!user.isActive) {
-        throw new UnauthorizedException('User account is deactivated');
-      }
-      if (user.lockedUntil && user.lockedUntil > now) {
-        throw new UnauthorizedException(
-          `Account locked due to too many failed attempts. Try again after ${user.lockedUntil.toISOString()}`,
-        );
+      if (!user.isActive || (user.lockedUntil && user.lockedUntil > now)) {
+        throw new UnauthorizedException(INVALID_CREDENTIALS_MESSAGE);
       }
 
-      session.revokedAt = new Date();
-      await em.save(session);
+      const ipMismatch = ip && session.ip && ip !== session.ip;
+      const uaMismatch = userAgent && session.userAgent && userAgent !== session.userAgent;
+      const contextMismatchAudit =
+        ipMismatch || uaMismatch
+          ? {
+              action: 'auth.session.context_mismatch' as const,
+              entityType: 'Session' as const,
+              entityId: session.id,
+              actorUserId: session.userId,
+              metadata: {
+                sessionIp: session.ip,
+                requestIp: ip,
+                sessionUserAgent: session.userAgent,
+                requestUserAgent: userAgent,
+              },
+              ip,
+              userAgent,
+            }
+          : undefined;
 
-      const basePayload = { sub: user.id, email: user.email, roleId: user.roleId };
-      const accessJti = randomUUID();
-      const refreshJti = randomUUID();
-      const accessToken = this.jwtService.sign(
-        { ...basePayload, tokenType: 'access', jti: accessJti },
-        { expiresIn: ACCESS_TOKEN_EXPIRES, algorithm: 'RS256' },
-      );
-      const refreshToken = this.jwtService.sign(
-        { ...basePayload, tokenType: 'refresh', jti: refreshJti },
-        { expiresIn: REFRESH_TOKEN_EXPIRES, algorithm: 'RS256' },
-      );
-      const newHash = this.hashRefreshToken(refreshToken);
-      const expiresAt = new Date();
-      expiresAt.setDate(expiresAt.getDate() + 7);
+      await em
+        .createQueryBuilder()
+        .update(Session)
+        .set({ revokedAt: () => 'NOW()' })
+        .where('id = :id', { id: session.id })
+        .execute();
 
+      const { accessToken, refreshToken, refreshJti, expiresAt } = this.buildTokenPair(user);
       const newSession = em.create(Session, {
         userId: user.id,
-        refreshTokenHash: newHash,
+        refreshTokenHash: this.hashRefreshToken(refreshToken),
         ip: ip ?? null,
         userAgent: userAgent ?? null,
         expiresAt,
@@ -223,8 +255,41 @@ export class AuthService {
       });
       await em.save(newSession);
 
-      return { email: user.email, access_token: accessToken, refresh_token: refreshToken };
+      return {
+        kind: 'success' as const,
+        email: user.email,
+        access_token: accessToken,
+        refresh_token: refreshToken,
+        contextMismatchAudit,
+      };
     });
+
+    if (txResult.kind === 'reuse') {
+      this.logAuditFireAndForget({
+        action: 'auth.refresh_token_reuse_detected',
+        entityType: 'Session',
+        entityId: txResult.reusedSessionId,
+        actorUserId: null,
+        metadata: {
+          reusedSessionId: txResult.reusedSessionId,
+          suspectedReuse: true,
+          revokedSessionCount: txResult.revokedCount,
+        },
+        ip: txResult.ip,
+        userAgent: txResult.userAgent,
+      });
+      throw new UnauthorizedException('Refresh token reuse detected. All sessions have been revoked.');
+    }
+
+    if (txResult.contextMismatchAudit) {
+      this.logAuditFireAndForget(txResult.contextMismatchAudit);
+    }
+
+    return {
+      email: txResult.email,
+      access_token: txResult.access_token,
+      refresh_token: txResult.refresh_token,
+    };
   }
 
   private async createTokensAndSession(
@@ -232,33 +297,11 @@ export class AuthService {
     ip?: string,
     userAgent?: string,
   ): Promise<{ email: string; access_token: string; refresh_token: string }> {
-    const payload = { sub: user.id, email: user.email, roleId: user.roleId };
-    const accessJti = randomUUID();
-    const refreshJti = randomUUID();
-
-    const accessToken = this.jwtService.sign(
-      { ...payload, tokenType: 'access', jti: accessJti },
-      {
-        expiresIn: ACCESS_TOKEN_EXPIRES,
-        algorithm: 'RS256',
-      },
-    );
-
-    const refreshToken = this.jwtService.sign(
-      { ...payload, tokenType: 'refresh', jti: refreshJti },
-      {
-        expiresIn: REFRESH_TOKEN_EXPIRES,
-        algorithm: 'RS256',
-      },
-    );
-
-    const refreshTokenHash = this.hashRefreshToken(refreshToken);
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 7);
+    const { accessToken, refreshToken, refreshJti, expiresAt } = this.buildTokenPair(user);
 
     const session = this.sessionRepository.create({
       userId: user.id,
-      refreshTokenHash,
+      refreshTokenHash: this.hashRefreshToken(refreshToken),
       ip: ip ?? null,
       userAgent: userAgent ?? null,
       expiresAt,
@@ -266,14 +309,14 @@ export class AuthService {
     });
     await this.sessionRepository.save(session);
 
-    await this.auditLogService.log({
+    this.logAuditFireAndForget({
       action: 'auth.login_success',
       entityType: 'User',
       entityId: user.id,
       actorUserId: user.id,
       metadata: {},
-      ip: ip ?? undefined,
-      userAgent: userAgent ?? undefined,
+      ip,
+      userAgent,
     });
 
     return {
@@ -300,21 +343,14 @@ export class AuthService {
 
     const hashedPassword = await hash(dto.password, 12);
 
-    try {
-      const user = await this.usersService.create({
-        email: dto.email,
-        name: dto.name,
-        password: hashedPassword,
-        roleId,
-      });
+    const user = await this.usersService.create({
+      email: dto.email,
+      name: dto.name,
+      password: hashedPassword,
+      roleId,
+    });
 
-      return { message: 'User created with success', userId: user.id };
-    } catch (err) {
-      if (err && typeof err === 'object' && (err as { code?: string }).code === '23505') {
-        throw new ConflictException('User already exists');
-      }
-      throw err;
-    }
+    return { message: 'User created with success', userId: user.id };
   }
 
   async changePassword(
@@ -335,16 +371,8 @@ export class AuthService {
     const hashedPassword = await hash(newPassword, 12);
     await this.usersService.updatePassword(userId, hashedPassword);
 
-    const result = await this.sessionRepository
-      .createQueryBuilder()
-      .update(Session)
-      .set({ revokedAt: () => 'NOW()' })
-      .where('user_id = :userId AND revoked_at IS NULL', { userId })
-      .execute();
-
-    this.logger.log(
-      `Password changed for user ${userId}. Revoked ${result.affected ?? 0} active sessions.`,
-    );
+    const revokedCount = await this.revokeAllUserSessions(userId);
+    this.logger.log(`Password changed for user ${userId}. Revoked ${revokedCount} active sessions.`);
 
     return { userId };
   }
@@ -354,12 +382,7 @@ export class AuthService {
       await this.cacheManager.set(`jti:${accessJti}`, 1, ACCESS_TOKEN_EXPIRES_MS);
     }
     if (refreshToken) {
-      const tokenHash = this.hashRefreshToken(refreshToken);
-      const session = await this.sessionRepository.findOne({ where: { refreshTokenHash: tokenHash } });
-      if (session && !session.revokedAt && session.userId === userId) {
-        session.revokedAt = new Date();
-        await this.sessionRepository.save(session);
-      }
+      await this.revokeSessionByRefreshHash(userId, this.hashRefreshToken(refreshToken));
     }
   }
 
@@ -367,11 +390,25 @@ export class AuthService {
     if (accessJti) {
       await this.cacheManager.set(`jti:${accessJti}`, 1, ACCESS_TOKEN_EXPIRES_MS);
     }
-    await this.sessionRepository
-      .createQueryBuilder()
-      .update(Session)
-      .set({ revokedAt: () => 'NOW()' })
-      .where('user_id = :userId AND revoked_at IS NULL', { userId })
-      .execute();
+    await this.revokeAllUserSessions(userId);
+  }
+
+  async listSessions(userId: string): Promise<SessionResponseDto[]> {
+    const sessions = await this.sessionRepository.find({
+      where: {
+        userId,
+        revokedAt: IsNull(),
+        expiresAt: MoreThan(new Date()),
+      },
+      order: { createdAt: 'DESC' },
+    });
+
+    return sessions.map((s) => ({
+      id: s.id,
+      ip: s.ip,
+      userAgent: s.userAgent,
+      createdAt: s.createdAt,
+      expiresAt: s.expiresAt,
+    }));
   }
 }

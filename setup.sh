@@ -67,23 +67,16 @@ fi
 log "⏳ Waiting for database to be ready..."
 sleep 10
 
-log "🗃️ Running TypeORM schema sync"
-npx typeorm-ts-node-commonjs schema:sync -d ./src/config/database.ts
-if [ $? -ne 0 ]; then
-  err "⛔️ Schema sync failed"
-fi
-
 log "🔄 Running migrations"
-npx typeorm-ts-node-commonjs migration:run -d ./src/config/database.ts
+npm run migration:run
 if [ $? -ne 0 ]; then
   err "⛔️ Migrations failed"
 fi
 
-log "🐝 Clean repository"
-rm -rf ./README.md
-touch ./README.md
+log "🌱 Seeding RBAC defaults"
+npm run seed:rbac
 if [ $? -ne 0 ]; then
-  err "⛔️ Cleaning failed."
+  err "⛔️ RBAC seed failed"
 fi
 
 log "✅ Setup completed successfully!"
