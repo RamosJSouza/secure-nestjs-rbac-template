@@ -498,6 +498,32 @@ describe('AuthService', () => {
     });
   });
 
+  describe('token pair', () => {
+    it('createTokensAndSession persists the accessJti on the new session', async () => {
+      mockUsersService.findOneWithPassword.mockResolvedValue({
+        id: 'u1', email: 't@x.com', password: 'h', name: 'T',
+        roleId: 'r', isActive: true, lockedUntil: null,
+      });
+      mockUsersService.resetFailedLogin.mockResolvedValue(undefined);
+      const bcryptjs = await import('bcryptjs');
+      jest.spyOn(bcryptjs, 'compare').mockResolvedValue(true as never);
+      mockJwtService.sign.mockReturnValue('tok');
+      jest.spyOn(service as any, 'hashRefreshToken').mockReturnValue('hash');
+      const captured: any[] = [];
+      sessionRepo.create = jest.fn((data: any) => data) as any;
+      sessionRepo.save = jest.fn(async (s: any) => { captured.push(s); return s; });
+
+      await service.login(
+        { email: 't@x.com', password: 'p' },
+        '1.1.1.1', 'UA',
+      );
+
+      expect(captured[0].accessJti).toEqual(expect.any(String));
+      expect(captured[0].jti).toEqual(expect.any(String)); // refresh jti
+      expect(captured[0].accessJti).not.toBe(captured[0].jti);
+    });
+  });
+
   describe('listSessions', () => {
     it('returns only active non-revoked non-expired sessions', async () => {
       const now = Date.now();

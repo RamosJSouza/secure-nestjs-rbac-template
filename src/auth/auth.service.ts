@@ -69,7 +69,7 @@ export class AuthService {
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + REFRESH_TOKEN_DAYS);
 
-    return { accessToken, refreshToken, refreshJti, expiresAt };
+    return { accessToken, refreshToken, accessJti, refreshJti, expiresAt };
   }
 
   private async revokeAllUserSessions(
@@ -243,10 +243,11 @@ export class AuthService {
         .where('id = :id', { id: session.id })
         .execute();
 
-      const { accessToken, refreshToken, refreshJti, expiresAt } = this.buildTokenPair(user);
+      const { accessToken, refreshToken, accessJti, refreshJti, expiresAt } = this.buildTokenPair(user);
       const newSession = em.create(Session, {
         userId: user.id,
         refreshTokenHash: this.hashRefreshToken(refreshToken),
+        accessJti,
         ip: ip ?? null,
         userAgent: userAgent ?? null,
         expiresAt,
@@ -297,11 +298,12 @@ export class AuthService {
     ip?: string,
     userAgent?: string,
   ): Promise<{ email: string; access_token: string; refresh_token: string }> {
-    const { accessToken, refreshToken, refreshJti, expiresAt } = this.buildTokenPair(user);
+    const { accessToken, refreshToken, accessJti, refreshJti, expiresAt } = this.buildTokenPair(user);
 
     const session = this.sessionRepository.create({
       userId: user.id,
       refreshTokenHash: this.hashRefreshToken(refreshToken),
+      accessJti,
       ip: ip ?? null,
       userAgent: userAgent ?? null,
       expiresAt,
