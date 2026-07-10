@@ -8,6 +8,7 @@ import { UsersService } from 'src/users/users.service';
 import { AuditLogService } from '@/modules/audit/audit-log.service';
 import { Session } from '@/modules/auth/entities/session.entity';
 import { Role } from '@/modules/rbac/entities/role.entity';
+import { User } from '@/modules/rbac/entities/user.entity';
 import { INVALID_CREDENTIALS_MESSAGE } from './auth.constants';
 
 describe('AuthService', () => {
@@ -277,36 +278,52 @@ describe('AuthService', () => {
         tokenType: 'refresh',
         exp: Math.floor(Date.now() / 1000) + 3600,
       });
-      const emFindOne = jest.fn().mockResolvedValue({
-        id: 's1',
-        userId: 'u1',
-        refreshTokenHash: 'hash',
-        revokedAt: null,
-        expiresAt: new Date(Date.now() + 60000),
-        user: lockedUser,
-      });
+      const lockedExecute = jest.fn().mockResolvedValue({ affected: 1 });
+      const lockedQb = {
+        update: jest.fn().mockReturnThis(),
+        set: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        execute: lockedExecute,
+      };
+      const emFindOne = jest.fn()
+        .mockResolvedValueOnce({
+          id: 's1', userId: 'u1', refreshTokenHash: 'hash', revokedAt: null,
+          expiresAt: new Date(Date.now() + 60000),
+        })
+        .mockResolvedValueOnce(lockedUser); // User loaded with withDeleted
       const txMock = jest.fn(async (cb: any) => cb({
         findOne: emFindOne,
         save: jest.fn().mockResolvedValue(undefined),
         create: jest.fn((_: any, d: any) => d),
+        getRepository: () => ({
+          find: jest.fn().mockResolvedValue([{ accessJti: 'a1' }]),
+          createQueryBuilder: () => lockedQb,
+        }),
       }));
       (sessionRepo as any).manager = { transaction: txMock };
+      (service as any).cacheManager = {
+        set: jest.fn().mockResolvedValue(undefined),
+        get: jest.fn().mockResolvedValue(undefined),
+      };
       jest.spyOn(service as any, 'hashRefreshToken').mockReturnValue('hash');
       await expect(service.refresh({ refresh_token: 't' })).rejects.toThrow(
         INVALID_CREDENTIALS_MESSAGE,
       );
+      expect(lockedExecute).toHaveBeenCalled();
     });
 
     it('rotates the session inside a transaction with a pessimistic_write lock', async () => {
       mockJwtService.verify.mockReturnValue({
         sub: 'u1', email: 't@x.com', tokenType: 'refresh', jti: 'rjti', exp: Math.floor(Date.now() / 1000) + 3600,
       });
-      const lockedSession = {
+      const sessionOnly = {
         id: 's1', userId: 'u1', refreshTokenHash: 'hash', revokedAt: null,
         expiresAt: new Date(Date.now() + 60000),
-        user: { id: 'u1', email: 't@x.com', roleId: 'r', isActive: true, lockedUntil: null },
       };
-      const emFindOne = jest.fn().mockResolvedValue(lockedSession);
+      const user = { id: 'u1', email: 't@x.com', roleId: 'r', isActive: true, lockedUntil: null };
+      const emFindOne = jest.fn()
+        .mockResolvedValueOnce(sessionOnly)
+        .mockResolvedValueOnce(user);
       const emSave = jest.fn().mockResolvedValue(undefined);
       const revokeExecute = jest.fn().mockResolvedValue(undefined);
       const emQb = {
@@ -330,9 +347,11 @@ describe('AuthService', () => {
       await service.refresh({ refresh_token: 't' });
 
       expect(txMock).toHaveBeenCalled();
-      expect(emFindOne).toHaveBeenCalledWith(
-        Session,
+      expect(emFindOne).toHaveBeenNthCalledWith(1, Session,
         expect.objectContaining({ where: { refreshTokenHash: 'hash' }, lock: { mode: 'pessimistic_write' } }),
+      );
+      expect(emFindOne).toHaveBeenNthCalledWith(2, User,
+        expect.objectContaining({ where: { id: 'u1' }, withDeleted: true }),
       );
       expect(revokeExecute).toHaveBeenCalledTimes(1);
       expect(emSave).toHaveBeenCalledTimes(1);
@@ -422,7 +441,7 @@ describe('AuthService', () => {
         tokenType: 'refresh',
         exp: Math.floor(Date.now() / 1000) + 3600,
       });
-      const lockedSession = {
+      const sessionSemUser = {
         id: 's1',
         userId: 'u1',
         refreshTokenHash: 'hash',
@@ -430,8 +449,11 @@ describe('AuthService', () => {
         expiresAt: new Date(Date.now() + 60000),
         ip: '1.1.1.1',
         userAgent: 'OldAgent',
-        user: { id: 'u1', email: 't@x.com', roleId: 'r', isActive: true, lockedUntil: null },
       };
+      const user = { id: 'u1', email: 't@x.com', roleId: 'r', isActive: true, lockedUntil: null };
+      const emFindOne = jest.fn()
+        .mockResolvedValueOnce(sessionSemUser)
+        .mockResolvedValueOnce(user);
       const emSave = jest.fn().mockResolvedValue(undefined);
       const revokeExecute = jest.fn().mockResolvedValue(undefined);
       const emQb = {
@@ -443,7 +465,7 @@ describe('AuthService', () => {
       const emCreate = jest.fn((_target: any, data: any) => data);
       const txMock = jest.fn(async (cb: any) =>
         cb({
-          findOne: jest.fn().mockResolvedValue(lockedSession),
+          findOne: emFindOne,
           createQueryBuilder: jest.fn().mockReturnValue(emQb),
           save: emSave,
           create: emCreate,
@@ -465,6 +487,60 @@ describe('AuthService', () => {
           }),
         }),
       );
+    });
+
+    it('rejects a soft-deleted user with 401 and revokes all sessions (no 500, no token issuance)', async () => {
+      jest.spyOn(service as any, 'hashRefreshToken').mockReturnValue('hash');
+      mockJwtService.verify.mockReturnValue({
+        sub: 'u1', email: 't@x.com', tokenType: 'refresh', exp: Math.floor(Date.now() / 1000) + 3600,
+      });
+      const bulkExecute = jest.fn().mockResolvedValue({ affected: 1 });
+      const qb: any = {
+        update: jest.fn().mockReturnThis(), set: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(), execute: bulkExecute,
+      };
+      const em: any = {
+        findOne: jest.fn()
+          .mockResolvedValueOnce({ // session
+            id: 's1', userId: 'u1', refreshTokenHash: 'hash', revokedAt: null,
+            expiresAt: new Date(Date.now() + 60000),
+          })
+          .mockResolvedValueOnce({ // user with withDeleted
+            id: 'u1', email: 't@x.com', isActive: true, deletedAt: new Date(), lockedUntil: null,
+          }),
+        getRepository: jest.fn().mockReturnValue({ createQueryBuilder: () => qb, find: jest.fn().mockResolvedValue([]) }),
+        save: jest.fn(), create: jest.fn(),
+      };
+      (service as any).cacheManager = { set: jest.fn(), get: jest.fn().mockResolvedValue(undefined) };
+      (sessionRepo as any).manager = { transaction: jest.fn(async (cb: any) => cb(em)) };
+
+      await expect(service.refresh({ refresh_token: 't' })).rejects.toThrow(UnauthorizedException);
+      expect(em.findOne).toHaveBeenNthCalledWith(2, User, expect.objectContaining({ withDeleted: true }));
+      expect(bulkExecute).toHaveBeenCalled();
+    });
+
+    it('rejects an inactive user with 401 and revokes all sessions', async () => {
+      jest.spyOn(service as any, 'hashRefreshToken').mockReturnValue('hash');
+      mockJwtService.verify.mockReturnValue({
+        sub: 'u1', email: 't@x.com', tokenType: 'refresh', exp: Math.floor(Date.now() / 1000) + 3600,
+      });
+      const bulkExecute = jest.fn().mockResolvedValue({ affected: 1 });
+      const qb: any = {
+        update: jest.fn().mockReturnThis(), set: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(), execute: bulkExecute,
+      };
+      const em: any = {
+        findOne: jest.fn()
+          .mockResolvedValueOnce({ id: 's1', userId: 'u1', refreshTokenHash: 'hash', revokedAt: null, expiresAt: new Date(Date.now() + 60000) })
+          .mockResolvedValueOnce({ id: 'u1', email: 't@x.com', isActive: false, deletedAt: null, lockedUntil: null }),
+        getRepository: jest.fn().mockReturnValue({ createQueryBuilder: () => qb, find: jest.fn().mockResolvedValue([]) }),
+        save: jest.fn(), create: jest.fn(),
+      };
+      (service as any).cacheManager = { set: jest.fn(), get: jest.fn().mockResolvedValue(undefined) };
+      (sessionRepo as any).manager = { transaction: jest.fn(async (cb: any) => cb(em)) };
+
+      await expect(service.refresh({ refresh_token: 't' })).rejects.toThrow(UnauthorizedException);
+      expect(bulkExecute).toHaveBeenCalled();
     });
   });
 

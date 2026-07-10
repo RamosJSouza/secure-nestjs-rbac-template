@@ -196,7 +196,6 @@ export class AuthService {
     const txResult = await this.sessionRepository.manager.transaction(async (em) => {
       const session = await em.findOne(Session, {
         where: { refreshTokenHash: tokenHash },
-        relations: ['user'],
         lock: { mode: 'pessimistic_write' },
       });
 
@@ -234,8 +233,14 @@ export class AuthService {
         throw new UnauthorizedException('Refresh token expired');
       }
 
-      const user = session.user;
-      if (!user.isActive || (user.lockedUntil && user.lockedUntil > now)) {
+      const user = await em.findOne(User, {
+        where: { id: session.userId },
+        withDeleted: true,
+        lock: { mode: 'pessimistic_write' },
+      });
+
+      if (!user || user.deletedAt || !user.isActive || (user.lockedUntil && user.lockedUntil > now)) {
+        await this.revokeAllUserSessions(session.userId, em.getRepository(Session));
         throw new UnauthorizedException(INVALID_CREDENTIALS_MESSAGE);
       }
 
