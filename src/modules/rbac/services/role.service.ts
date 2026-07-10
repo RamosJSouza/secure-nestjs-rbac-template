@@ -3,9 +3,11 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { Role } from '../entities/role.entity';
 import { RolePermission } from '../entities/role-permission.entity';
-import { CreateRoleDto, UpdateRoleDto, AssignPermissionsDto } from '../dto/role.dto';
+import { CreateRoleDto, UpdateRoleDto, AssignPermissionsDto, QueryRoleDto } from '../dto/role.dto';
 import { RbacService } from './rbac.service';
 import { User } from '../entities/user.entity';
+import { handlePgConstraintError } from '@/common/utils/pg-constraint-error.util';
+import { applyActiveFilter, applyPagination } from '@/common/utils/pagination-query.util';
 
 @Injectable()
 export class RoleService {
@@ -14,48 +16,49 @@ export class RoleService {
     constructor(
         @InjectRepository(Role)
         private roleRepository: Repository<Role>,
-        @InjectRepository(RolePermission)
-        private rolePermissionRepository: Repository<RolePermission>,
         @InjectRepository(User)
         private userRepository: Repository<User>,
         private rbacService: RbacService,
         private dataSource: DataSource,
-    ) { }
+    ) {}
 
     async create(dto: CreateRoleDto): Promise<Role> {
-        const queryRunner = this.dataSource.createQueryRunner();
-        await queryRunner.connect();
-        await queryRunner.startTransaction();
+        const existing = await this.roleRepository.findOne({
+            where: { name: dto.name },
+        });
+
+        if (existing) {
+            throw new ConflictException(`Role "${dto.name}" already exists`);
+        }
 
         try {
-            const existing = await queryRunner.manager.findOne(Role, {
-                where: { name: dto.name },
-            });
-
-            if (existing) {
-                throw new ConflictException(`Role "${dto.name}" already exists`);
-            }
-
-            const role = queryRunner.manager.create(Role, dto);
-            const savedRole = await queryRunner.manager.save(Role, role);
-
-            await queryRunner.commitTransaction();
+            const role = this.roleRepository.create(dto);
+            const savedRole = await this.roleRepository.save(role);
             this.logger.log(`Created new role: ${savedRole.id}`);
             return savedRole;
         } catch (err) {
-            await queryRunner.rollbackTransaction();
-            this.logger.error(`Failed to create role: ${err.message}`, err.stack);
-            throw err;
-        } finally {
-            await queryRunner.release();
+            handlePgConstraintError(err, {
+                onUnique: () => {
+                    throw new ConflictException(`Role "${dto.name}" already exists`);
+                },
+            });
         }
     }
 
-    async findAll(): Promise<Role[]> {
-        return this.roleRepository.find({
-            relations: ['rolePermissions', 'rolePermissions.permission', 'rolePermissions.permission.feature'],
-            order: { name: 'ASC' },
-        });
+    async findAll(query: QueryRoleDto = {}): Promise<{ data: Role[]; total: number }> {
+        const { search, isActive } = query;
+
+        const qb = this.roleRepository.createQueryBuilder('role');
+
+        if (search) {
+            qb.andWhere('role.name ILIKE :search', { search: `%${search}%` });
+        }
+
+        applyActiveFilter(qb, 'role', isActive);
+        applyPagination(qb, query, { column: 'role.name', direction: 'ASC' });
+
+        const [data, total] = await qb.getManyAndCount();
+        return { data, total };
     }
 
     async findOne(id: string): Promise<Role> {
@@ -86,18 +89,30 @@ export class RoleService {
         }
 
         Object.assign(role, dto);
-        const updated = await this.roleRepository.save(role);
 
-        if (dto.isActive !== undefined) {
-            await this.rbacService.invalidateRoleCache(id);
+        try {
+            const updated = await this.roleRepository.save(role);
+
+            if (dto.isActive !== undefined) {
+                await this.rbacService.invalidateRoleCache(id);
+            }
+
+            this.logger.log(`Updated role ${id}`);
+            return updated;
+        } catch (err) {
+            handlePgConstraintError(err, {
+                onUnique: () => {
+                    throw new ConflictException(`Role with name "${dto.name ?? role.name}" already exists`);
+                },
+            });
         }
-
-        this.logger.log(`Updated role ${id}`);
-        return updated;
     }
 
     async remove(id: string): Promise<void> {
-        const role = await this.findOne(id);
+        const exists = await this.roleRepository.exists({ where: { id } });
+        if (!exists) {
+            throw new NotFoundException(`Role with ID "${id}" not found`);
+        }
 
         const userCount = await this.userRepository.count({ where: { roleId: id } });
 
@@ -106,45 +121,36 @@ export class RoleService {
             throw new ConflictException(`Cannot delete role with ${userCount} users assigned`);
         }
 
-        await this.roleRepository.remove(role);
+        await this.roleRepository.delete(id);
         await this.rbacService.invalidateRoleCache(id);
         this.logger.log(`Deleted role ${id}`);
     }
 
     async assignPermissions(roleId: string, dto: AssignPermissionsDto, currentUserId?: string): Promise<{ permissionIds: string[] }> {
-        await this.findOne(roleId);
+        const exists = await this.roleRepository.exists({ where: { id: roleId } });
+        if (!exists) {
+            throw new NotFoundException(`Role with ID "${roleId}" not found`);
+        }
 
-        const queryRunner = this.dataSource.createQueryRunner();
-        await queryRunner.connect();
-        await queryRunner.startTransaction('SERIALIZABLE');
+        const uniquePermissions = await this.dataSource.transaction('SERIALIZABLE', async (em) => {
+            await em.delete(RolePermission, { roleId });
 
-        try {
-            await queryRunner.manager.delete(RolePermission, { roleId });
+            const permissionIds = [...new Set(dto.permissionIds)];
 
-            const uniquePermissions = [...new Set(dto.permissionIds)];
-
-            const newPermissions = uniquePermissions.map(permissionId =>
-                queryRunner.manager.create(RolePermission, {
-                    roleId,
-                    permissionId,
-                })
+            await em.save(
+                RolePermission,
+                permissionIds.map((permissionId) =>
+                    em.create(RolePermission, { roleId, permissionId }),
+                ),
             );
 
-            await queryRunner.manager.save(RolePermission, newPermissions);
+            return permissionIds;
+        });
 
-            await queryRunner.commitTransaction();
+        await this.rbacService.invalidateRoleCache(roleId);
 
-            await this.rbacService.invalidateRoleCache(roleId);
+        this.logger.log(`Assigned ${uniquePermissions.length} permissions to role ${roleId} by user ${currentUserId || 'system'}`);
 
-            this.logger.log(`Assigned ${newPermissions.length} permissions to role ${roleId} by user ${currentUserId || 'system'}`);
-
-            return { permissionIds: uniquePermissions };
-        } catch (err) {
-            await queryRunner.rollbackTransaction();
-            this.logger.error(`Failed to assign permissions: ${err.message}`, err.stack);
-            throw err;
-        } finally {
-            await queryRunner.release();
-        }
+        return { permissionIds: uniquePermissions };
     }
 }

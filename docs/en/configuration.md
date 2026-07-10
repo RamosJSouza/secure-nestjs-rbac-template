@@ -10,6 +10,7 @@ The `.env` file must be at the project root.
 - `NODE_ENV`: `development`, `production`, or `test`. Default: `development`
 - `PORT`: Server port. Default: `3000`
 - `APP_NAME`: Application name (optional)
+- `API_PREFIX`: Global route prefix. Default: `api` — all routes are served under `/api/*` (e.g. `/api/auth/login`). Swagger UI: `/api/docs`
 
 ### Database (PostgreSQL)
 - `DB_HOST`, `DB_PORT`, `DB_USERNAME`, `DB_PASSWORD`, `DB_DATABASE`
@@ -37,6 +38,11 @@ In `.env`, paste PEM content as a single line, replacing newlines with `\n`. Bot
 
 ### Redis
 - `REDIS_HOST`, `REDIS_PORT` (default: 6379)
+- `REDIS_PASSWORD`: Optional; when set, enables Redis AUTH and is passed to Keyv
+
+Without `REDIS_HOST`, RBAC permission cache and JWT denylist use an in-memory fallback (per process). Set `REDIS_HOST` in every multi-replica deployment.
+
+When Redis is enabled, the cache uses a two-tier setup: in-process L1 (`KeyvCacheableMemory`) plus Redis L2 for shared invalidation across replicas.
 
 ### Email (Resend)
 - `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, `RESEND_FROM_NAME` (optional)

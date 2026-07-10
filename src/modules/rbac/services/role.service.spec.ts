@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import { ConflictException } from '@nestjs/common';
 import { RoleService } from './role.service';
 import { RbacService } from './rbac.service';
 import { Role } from '../entities/role.entity';
@@ -9,7 +10,6 @@ import { User } from '../entities/user.entity';
 describe('RoleService', () => {
     let service: RoleService;
     let mockRoleRepo: any;
-    let mockRolePermissionRepo: any;
     let mockUserRepo: any;
     let mockRbacService: any;
     let mockDataSource: any;
@@ -19,16 +19,12 @@ describe('RoleService', () => {
             create: jest.fn(),
             save: jest.fn(),
             findOne: jest.fn(),
+            exists: jest.fn(),
             find: jest.fn(),
             update: jest.fn(),
-            remove: jest.fn(),
-        };
-
-        mockRolePermissionRepo = {
-            create: jest.fn(),
-            save: jest.fn(),
             delete: jest.fn(),
-            find: jest.fn(),
+            remove: jest.fn(),
+            createQueryBuilder: jest.fn(),
         };
 
         mockUserRepo = {
@@ -40,18 +36,13 @@ describe('RoleService', () => {
         };
 
         mockDataSource = {
-            createQueryRunner: jest.fn().mockReturnValue({
-                connect: jest.fn(),
-                startTransaction: jest.fn(),
-                commitTransaction: jest.fn(),
-                rollbackTransaction: jest.fn(),
-                release: jest.fn(),
-                manager: {
-                    findOne: jest.fn(),
-                    create: jest.fn(),
-                    save: jest.fn(),
+            transaction: jest.fn().mockImplementation(async (_isolation, cb) => {
+                const em = {
                     delete: jest.fn(),
-                },
+                    create: jest.fn((_, data) => data),
+                    save: jest.fn(),
+                };
+                return cb(em);
             }),
         };
 
@@ -59,7 +50,6 @@ describe('RoleService', () => {
             providers: [
                 RoleService,
                 { provide: getRepositoryToken(Role), useValue: mockRoleRepo },
-                { provide: getRepositoryToken(RolePermission), useValue: mockRolePermissionRepo },
                 { provide: getRepositoryToken(User), useValue: mockUserRepo },
                 { provide: RbacService, useValue: mockRbacService },
                 { provide: DataSource, useValue: mockDataSource },
@@ -69,37 +59,74 @@ describe('RoleService', () => {
         service = module.get<RoleService>(RoleService);
     });
 
-    it('should create a role in a transaction', async () => {
+    it('should create a role without a transaction', async () => {
         const dto = { name: 'Admin' };
-        mockDataSource.createQueryRunner().manager.findOne.mockResolvedValue(null);
-        mockDataSource.createQueryRunner().manager.save.mockResolvedValue({ id: '1', ...dto });
+        mockRoleRepo.findOne.mockResolvedValue(null);
+        mockRoleRepo.create.mockReturnValue(dto);
+        mockRoleRepo.save.mockResolvedValue({ id: '1', ...dto });
 
         const result = await service.create(dto);
         expect(result).toEqual({ id: '1', name: 'Admin' });
-        expect(mockDataSource.createQueryRunner().commitTransaction).toHaveBeenCalled();
+        expect(mockDataSource.transaction).not.toHaveBeenCalled();
+        expect(mockRoleRepo.save).toHaveBeenCalled();
     });
 
     it('should prevent creating duplicate roles', async () => {
-        mockDataSource.createQueryRunner().manager.findOne.mockResolvedValue({ name: 'Admin' });
+        mockRoleRepo.findOne.mockResolvedValue({ name: 'Admin' });
 
         await expect(service.create({ name: 'Admin' })).rejects.toThrow();
-        expect(mockDataSource.createQueryRunner().rollbackTransaction).toHaveBeenCalled();
+    });
+
+    it('maps unique violation on save to ConflictException', async () => {
+        mockRoleRepo.findOne.mockResolvedValue(null);
+        mockRoleRepo.create.mockReturnValue({ name: 'Admin' });
+        mockRoleRepo.save.mockRejectedValue(Object.assign(new Error('duplicate'), { code: '23505' }));
+
+        await expect(service.create({ name: 'Admin' })).rejects.toThrow(ConflictException);
     });
 
     it('should assign permissions transactionally', async () => {
-        mockRoleRepo.findOne.mockResolvedValue({ id: 'role-1' });
+        mockRoleRepo.exists.mockResolvedValue(true);
+        let transactionalEm: { delete: jest.Mock; create: jest.Mock; save: jest.Mock };
+        mockDataSource.transaction.mockImplementation(async (_isolation, cb) => {
+            transactionalEm = {
+                delete: jest.fn(),
+                create: jest.fn((_, data) => data),
+                save: jest.fn(),
+            };
+            return cb(transactionalEm);
+        });
 
         await service.assignPermissions('role-1', { permissionIds: ['p1', 'p2'] });
 
-        expect(mockDataSource.createQueryRunner().manager.delete).toHaveBeenCalledWith(RolePermission, { roleId: 'role-1' });
-        expect(mockDataSource.createQueryRunner().manager.save).toHaveBeenCalled();
+        expect(mockRoleRepo.exists).toHaveBeenCalledWith({ where: { id: 'role-1' } });
+        expect(mockDataSource.transaction).toHaveBeenCalledWith('SERIALIZABLE', expect.any(Function));
+        expect(transactionalEm!.delete).toHaveBeenCalledWith(RolePermission, { roleId: 'role-1' });
+        expect(transactionalEm!.save).toHaveBeenCalled();
         expect(mockRbacService.invalidateRoleCache).toHaveBeenCalledWith('role-1');
     });
 
     it('should not delete role if users are assigned', async () => {
-        mockRoleRepo.findOne.mockResolvedValue({ id: 'role-1' });
+        mockRoleRepo.exists.mockResolvedValue(true);
         mockUserRepo.count.mockResolvedValue(5);
 
         await expect(service.remove('role-1')).rejects.toThrow();
+    });
+
+    it('findAll returns paginated data without relation joins', async () => {
+        const qb = {
+            andWhere: jest.fn().mockReturnThis(),
+            orderBy: jest.fn().mockReturnThis(),
+            skip: jest.fn().mockReturnThis(),
+            take: jest.fn().mockReturnThis(),
+            getManyAndCount: jest.fn().mockResolvedValue([[{ id: 'r1' }], 1]),
+        };
+        mockRoleRepo.createQueryBuilder.mockReturnValue(qb);
+
+        const result = await service.findAll({ page: 1, limit: 10 });
+
+        expect(result).toEqual({ data: [{ id: 'r1' }], total: 1 });
+        expect(qb.skip).toHaveBeenCalledWith(0);
+        expect(qb.take).toHaveBeenCalledWith(10);
     });
 });

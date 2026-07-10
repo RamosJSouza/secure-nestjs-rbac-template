@@ -1,4 +1,4 @@
-import { Test } from '@nestjs/testing';
+import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
 import { PurgeService } from './purge.service';
@@ -19,6 +19,7 @@ function mockQueryBuilder(affectedSequence: number[]) {
 
 describe('PurgeService', () => {
   let service: PurgeService;
+  let moduleRef: TestingModule;
   let sessionQb: ReturnType<typeof mockQueryBuilder>;
   let auditQb: ReturnType<typeof mockQueryBuilder>;
   let configGet: jest.Mock;
@@ -58,8 +59,13 @@ describe('PurgeService', () => {
       ],
     }).compile();
 
+    moduleRef = module;
     service = module.get(PurgeService);
     service.onModuleInit();
+  });
+
+  afterEach(async () => {
+    await moduleRef?.close();
   });
 
   it('runSessionPurge deletes in batch when enabled', async () => {

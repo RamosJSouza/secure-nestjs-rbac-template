@@ -1,10 +1,11 @@
-import { Injectable, Inject } from '@nestjs/common';
+import { Injectable, Inject, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Cache } from 'cache-manager';
 import { CreateUserDto } from './dto/create-user.dto';
 import { User } from 'src/modules/rbac/entities/user.entity';
+import { handlePgConstraintError } from '@/common/utils/pg-constraint-error.util';
 
 const LOCKOUT_THRESHOLD = 5;
 const LOCKOUT_DURATION_MS = 15 * 60 * 1000;
@@ -34,7 +35,7 @@ export class UsersService {
     await this.cacheManager.del(`user:${userId}`);
   }
 
-  create(createUserDto: CreateUserDto): Promise<User> {
+  async create(createUserDto: CreateUserDto): Promise<User> {
     const user = this.usersRepository.create({
       name: createUserDto.name,
       email: createUserDto.email,
@@ -42,7 +43,15 @@ export class UsersService {
       roleId: createUserDto.roleId,
     });
 
-    return this.usersRepository.save(user);
+    try {
+      return await this.usersRepository.save(user);
+    } catch (err) {
+      handlePgConstraintError(err, {
+        onUnique: () => {
+          throw new ConflictException('User already exists');
+        },
+      });
+    }
   }
 
   findOne(email: string): Promise<User | null> {
@@ -105,5 +114,4 @@ export class UsersService {
     );
     await this.invalidateUserCache(userId);
   }
-
 }

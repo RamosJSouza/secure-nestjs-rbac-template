@@ -1,6 +1,6 @@
 import { DynamicModule, Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
-import { isRedisConfigured } from './redis-connection.factory';
+import { isRedisConfigured, resolveRedisConnection } from './redis-connection.factory';
 
 @Module({})
 export class OptionalBullModule {
@@ -9,14 +9,18 @@ export class OptionalBullModule {
       return { module: OptionalBullModule, imports: [], providers: [], exports: [] };
     }
 
-    const host = process.env.REDIS_HOST!;
-    const port = Number(process.env.REDIS_PORT) || 6379;
+    const redis = resolveRedisConnection()!;
 
     return {
       module: OptionalBullModule,
       imports: [
         BullModule.forRoot({
-          connection: { host, port, maxRetriesPerRequest: null },
+          connection: {
+            host: redis.host,
+            port: redis.port,
+            ...(redis.password ? { password: redis.password } : {}),
+            maxRetriesPerRequest: null,
+          },
         }),
       ],
       exports: [BullModule],

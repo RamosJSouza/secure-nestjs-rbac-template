@@ -15,6 +15,9 @@ async function bootstrap() {
   try {
     const configService = app.get(ConfigService);
 
+    const apiPrefix = configService.get<string>('API_PREFIX', 'api');
+    app.setGlobalPrefix(apiPrefix);
+
     app.use(helmet());
 
     app.enableCors({
@@ -47,14 +50,14 @@ async function bootstrap() {
       .build();
 
     const document = SwaggerModule.createDocument(app, config);
-    SwaggerModule.setup('api/docs', app, document);
+    SwaggerModule.setup('docs', app, document);
 
-    const port = configService.get<number>('port') ?? configService.get<number>('PORT') ?? 3000;
+    const port = configService.get<number>('PORT') ?? 3000;
     await app.listen(port);
 
     const logger = app.get(Logger);
-    logger.log(`Application is running on: http://localhost:${port}`, 'Bootstrap');
-    logger.log(`Swagger Documentation: http://localhost:${port}/api/docs`, 'Bootstrap');
+    logger.log(`Application is running on: http://localhost:${port}/${apiPrefix}`, 'Bootstrap');
+    logger.log(`Swagger Documentation: http://localhost:${port}/${apiPrefix}/docs`, 'Bootstrap');
   } catch (error) {
     const logger = app.get(Logger);
     logger.error(

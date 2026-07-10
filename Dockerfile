@@ -30,6 +30,6 @@ ENV NODE_ENV=production
 ENV PORT=3000
 
 HEALTHCHECK --interval=10s --timeout=5s --retries=3 --start-period=30s \
-  CMD wget -qO- http://127.0.0.1:3000/health/readiness || exit 1
+  CMD wget -qO- http://127.0.0.1:3000/api/health/readiness || exit 1
 
 CMD ["sh", "scripts/docker-entrypoint.sh"]

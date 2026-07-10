@@ -35,6 +35,3 @@ export function buildDataSourceOptions(): DataSourceOptions {
     },
   };
 }
-
-/** @deprecated import buildDataSourceOptions instead */
-export const dataSourceOptions = buildDataSourceOptions();

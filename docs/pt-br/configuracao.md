@@ -10,6 +10,7 @@ O arquivo `.env` deve estar na raiz do projeto.
 - `NODE_ENV`: `development`, `production` ou `test`. Padrão: `development`
 - `PORT`: Porta do servidor. Padrão: `3000`
 - `APP_NAME`: Nome da aplicação (opcional)
+- `API_PREFIX`: Prefixo global das rotas. Padrão: `api` — todas as rotas ficam em `/api/*` (ex.: `/api/auth/login`). Swagger UI: `/api/docs`
 
 ### Banco de Dados (PostgreSQL)
 - `DB_HOST`, `DB_PORT`, `DB_USERNAME`, `DB_PASSWORD`, `DB_DATABASE`
@@ -37,6 +38,11 @@ No `.env`, cole o conteúdo PEM em uma linha, substituindo quebras por `\n`. Amb
 
 ### Redis
 - `REDIS_HOST`, `REDIS_PORT` (padrão: 6379)
+- `REDIS_PASSWORD`: Opcional; quando definida, habilita AUTH no Redis e é repassada ao Keyv
+
+Sem `REDIS_HOST`, o cache RBAC e a denylist JWT usam fallback in-memory (por processo). Defina `REDIS_HOST` em todo deploy com múltiplas réplicas.
+
+Com Redis habilitado, o cache usa dois níveis: L1 em processo (`KeyvCacheableMemory`) mais Redis L2 para invalidação compartilhada entre réplicas.
 
 ### E-mail (Resend)
 - `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, `RESEND_FROM_NAME` (opcional)

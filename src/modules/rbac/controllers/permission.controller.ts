@@ -2,13 +2,12 @@ import { Controller, Get, Post, Put, Delete, Body, Param, UseGuards, HttpCode, H
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiResponse } from '@nestjs/swagger';
 import { PermissionService } from '../services/permission.service';
 import { CreatePermissionDto, UpdatePermissionDto } from '../dto/permission.dto';
-import { JwtAuthGuard } from '@/auth/strategy/jwt-auth.guard';
 import { PermissionGuard, RequirePermissions } from '@/common/guards/permission.guard';
 
 @ApiTags('Permissions')
 @ApiBearerAuth()
 @Controller('permissions')
-@UseGuards(JwtAuthGuard, PermissionGuard)
+@UseGuards(PermissionGuard)
 export class PermissionController {
     constructor(private readonly permissionService: PermissionService) { }
 

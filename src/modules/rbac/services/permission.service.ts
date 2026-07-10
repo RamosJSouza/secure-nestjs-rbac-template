@@ -1,9 +1,10 @@
 import { Injectable, NotFoundException, ConflictException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
 import { Permission } from '../entities/permission.entity';
 import { CreatePermissionDto, UpdatePermissionDto } from '../dto/permission.dto';
 import { RbacService } from './rbac.service';
+import { handlePgConstraintError } from '@/common/utils/pg-constraint-error.util';
 
 @Injectable()
 export class PermissionService {
@@ -13,7 +14,6 @@ export class PermissionService {
         @InjectRepository(Permission)
         private permissionRepository: Repository<Permission>,
         private rbacService: RbacService,
-        private dataSource: DataSource,
     ) { }
 
     async create(dto: CreatePermissionDto): Promise<Permission> {
@@ -22,10 +22,11 @@ export class PermissionService {
             const permission = this.permissionRepository.create(dto);
             return await this.permissionRepository.save(permission);
         } catch (err) {
-            if (err.code === '23505') {
-                throw new ConflictException(`Permission "${dto.action}" for this feature already exists`);
-            }
-            throw err;
+            handlePgConstraintError(err, {
+                onUnique: () => {
+                    throw new ConflictException(`Permission "${dto.action}" for this feature already exists`);
+                },
+            });
         }
     }
 
@@ -63,12 +64,19 @@ export class PermissionService {
 
     async remove(id: string): Promise<void> {
         try {
-            await this.permissionRepository.delete(id);
-        } catch (err) {
-            if (err.code === '23503') {
-                throw new ConflictException('Cannot delete permission that is assigned to roles. Revoke it first.');
+            const result = await this.permissionRepository.delete(id);
+            if (result.affected === 0) {
+                throw new NotFoundException(`Permission with ID "${id}" not found`);
             }
-            throw err;
+        } catch (err) {
+            if (err instanceof NotFoundException) {
+                throw err;
+            }
+            handlePgConstraintError(err, {
+                onForeignKey: () => {
+                    throw new ConflictException('Cannot delete permission that is assigned to roles. Revoke it first.');
+                },
+            });
         }
 
         await this.rbacService.invalidateAllRoles();

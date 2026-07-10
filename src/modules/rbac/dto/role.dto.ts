@@ -1,5 +1,6 @@
 import { IsString, IsBoolean, IsOptional, IsArray, IsUUID } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { BasePaginationQueryDto } from '@/common/dto/base-pagination-query.dto';
 
 export class CreateRoleDto {
     @ApiProperty({
@@ -57,6 +58,8 @@ export class AssignPermissionsDto {
     permissionIds: string[];
 }
 
+export class QueryRoleDto extends BasePaginationQueryDto {}
+
 /** Response DTO for Role operations */
 export class RoleResponseDto {
     @ApiProperty({ example: '31d45fbd-2b4b-4922-a653-7af171d3908d' })
@@ -76,4 +79,12 @@ export class RoleResponseDto {
 
     @ApiProperty()
     updatedAt: Date;
+}
+
+export class PaginatedRoleResponseDto {
+    @ApiProperty({ type: [RoleResponseDto] })
+    data: RoleResponseDto[];
+
+    @ApiProperty({ example: 42 })
+    total: number;
 }

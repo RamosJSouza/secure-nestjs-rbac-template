@@ -20,13 +20,13 @@ The system uses JWT with **RS256**. The private key (`PRIVATE_KEY`) signs tokens
 ## Flows
 
 ### Login
-1. Client sends email and password to `POST /auth/login`.
+1. Client sends email and password to `POST /api/auth/login`.
 2. Server validates credentials, checks account active and not locked.
 3. On success: returns `access_token` and `refresh_token`.
 4. Refresh token is stored (SHA-256 hash) with IP and User-Agent.
 
 ### Refresh
-1. Client sends `refresh_token` to `POST /auth/refresh`.
+1. Client sends `refresh_token` to `POST /api/auth/refresh`.
 2. Server validates token (RS256) and session.
 3. If session was revoked (e.g. reuse detected), all user sessions are revoked and error returned.
 4. On success: new session created, old session revoked; returns new token pair (rotation).
@@ -36,7 +36,7 @@ The system uses JWT with **RS256**. The private key (`PRIVATE_KEY`) signs tokens
 - If a revoked refresh token is reused, the system revokes all user sessions and logs `auth.refresh_token_reuse_detected`.
 
 ### Password Change
-- `POST /auth/change-password` requires Bearer auth.
+- `POST /api/auth/change-password` requires Bearer auth.
 - On password change, **all active sessions** for the user are revoked.
 - User must re-login on every device.
 
@@ -50,7 +50,8 @@ The system uses JWT with **RS256**. The private key (`PRIVATE_KEY`) signs tokens
 
 | Method | Route | Auth | Description |
 |--------|-------|------|-------------|
-| POST | /auth/login | No | Login |
-| POST | /auth/refresh | No | Exchange refresh token for new pair |
-| POST | /auth/register | Yes + perm | Create user (users:create) |
-| POST | /auth/change-password | Yes | Change authenticated user password |
+| POST | /api/auth/login | No | Login |
+| POST | /api/auth/refresh | No | Exchange refresh token for new pair |
+| POST | /api/auth/register | Yes + perm | Create user (users:create) |
+| POST | /api/auth/change-password | Yes | Change authenticated user password |
+| GET | /api/auth/sessions | Yes | List active sessions for current user |

@@ -1,6 +1,6 @@
-import { IsString, IsBoolean, IsOptional, IsInt, Min } from 'class-validator';
+import { IsString, IsBoolean, IsOptional } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { BasePaginationQueryDto } from '@/common/dto/base-pagination-query.dto';
 
 export class CreateFeatureDto {
     @ApiProperty({
@@ -59,32 +59,7 @@ export class UpdateFeatureDto {
     isActive?: boolean;
 }
 
-export class QueryFeatureDto {
-    @ApiPropertyOptional({ default: 1, minimum: 1, example: 1 })
-    @IsOptional()
-    @Type(() => Number)
-    @IsInt()
-    @Min(1)
-    page?: number;
-
-    @ApiPropertyOptional({ default: 10, minimum: 1, example: 10 })
-    @IsOptional()
-    @Type(() => Number)
-    @IsInt()
-    @Min(1)
-    limit?: number;
-
-    @ApiPropertyOptional({ example: 'financial', description: 'Search in key and name' })
-    @IsOptional()
-    @IsString()
-    search?: string;
-
-    @ApiPropertyOptional({ example: true, description: 'Filter by active status' })
-    @IsOptional()
-    @IsBoolean()
-    @Type(() => Boolean)
-    isActive?: boolean;
-}
+export class QueryFeatureDto extends BasePaginationQueryDto {}
 
 /** Response DTO for Feature operations */
 export class FeatureResponseDto {
@@ -108,4 +83,12 @@ export class FeatureResponseDto {
 
     @ApiProperty()
     updatedAt: Date;
+}
+
+export class PaginatedFeatureResponseDto {
+    @ApiProperty({ type: [FeatureResponseDto] })
+    data: FeatureResponseDto[];
+
+    @ApiProperty({ example: 42 })
+    total: number;
 }

@@ -57,6 +57,8 @@ export class RoleController {
 
 ## RBAC Endpoints
 
+List endpoints (`GET /roles`, `GET /features`) return **paginated entity metadata only** — no nested permissions. Use `GET /roles/:id` or `GET /features/:id` for the full graph including permissions.
+
 | Resource | GET | GET/:id | POST | PUT/:id | DELETE/:id |
 |----------|-----|---------|------|---------|------------|
 | Features | rbac:view | rbac:view | rbac:create | rbac:edit | rbac:delete |

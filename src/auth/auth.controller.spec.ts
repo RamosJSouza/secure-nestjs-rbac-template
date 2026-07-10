@@ -11,6 +11,7 @@ describe('AuthController', () => {
     register: jest.fn(),
     logout: jest.fn(),
     logoutAll: jest.fn(),
+    listSessions: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -101,6 +102,16 @@ describe('AuthController', () => {
       const res = await controller.logoutAll(req);
       expect(mockAuthService.logoutAll).toHaveBeenCalledWith('u1', 'jti-1');
       expect(res).toEqual({ message: 'All sessions revoked' });
+    });
+  });
+
+  describe('listSessions', () => {
+    it('calls authService.listSessions with userId', async () => {
+      mockAuthService.listSessions = jest.fn().mockResolvedValue([{ id: 's1', ip: '1.2.3.4' }]);
+      const req: any = { user: { id: 'u1' } };
+      const result = await controller.listSessions(req);
+      expect(mockAuthService.listSessions).toHaveBeenCalledWith('u1');
+      expect(result).toHaveLength(1);
     });
   });
 });

@@ -57,6 +57,8 @@ O `PermissionGuard` usa `RbacService` para verificar se a Role do usuário possu
 
 ## Endpoints RBAC
 
+Os endpoints de listagem (`GET /roles`, `GET /features`) retornam **apenas metadados paginados da entidade** — sem permissions aninhadas. Use `GET /roles/:id` ou `GET /features/:id` para o grafo completo com permissions.
+
 | Recurso | GET | GET/:id | POST | PUT/:id | DELETE/:id |
 |---------|-----|---------|------|---------|------------|
 | Features | rbac:view | rbac:view | rbac:create | rbac:edit | rbac:delete |

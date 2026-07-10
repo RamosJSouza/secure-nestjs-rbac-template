@@ -7,6 +7,8 @@ export const validationSchema = Joi.object({
 
   PORT: Joi.number().default(3000),
 
+  API_PREFIX: Joi.string().default('api'),
+
   DB_HOST: Joi.string().required(),
   DB_PORT: Joi.number().default(5432),
   DB_USERNAME: Joi.string().required(),
@@ -71,6 +73,8 @@ export const validationSchema = Joi.object({
   AUDIT_PURGE_CRON: Joi.string().default('0 4 * * *'),
 
   PURGE_BATCH_SIZE: Joi.number().integer().min(1).default(1000),
+
+  REDIS_PASSWORD: Joi.string().optional().allow(''),
 }).options({
   allowUnknown: true,
   stripUnknown: true,

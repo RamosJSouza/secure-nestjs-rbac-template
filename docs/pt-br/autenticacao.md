@@ -20,13 +20,13 @@ O sistema utiliza JWT com **RS256**. A chave privada (`PRIVATE_KEY`) assina os t
 ## Fluxos
 
 ### Login
-1. Cliente envia email e senha para `POST /auth/login`.
+1. Cliente envia email e senha para `POST /api/auth/login`.
 2. Servidor valida credenciais, verifica conta ativa e não bloqueada.
 3. Em sucesso: retorna `access_token` e `refresh_token`.
 4. Refresh token é armazenado (hash SHA-256) com IP e User-Agent.
 
 ### Refresh
-1. Cliente envia `refresh_token` para `POST /auth/refresh`.
+1. Cliente envia `refresh_token` para `POST /api/auth/refresh`.
 2. Servidor valida token (RS256) e sessão.
 3. Se a sessão foi revogada (ex.: reutilização detectada), todas as sessões do usuário são revogadas e retorna erro.
 4. Em sucesso: nova sessão criada, antiga revogada; retorna novo par de tokens (rotação).
@@ -36,7 +36,7 @@ O sistema utiliza JWT com **RS256**. A chave privada (`PRIVATE_KEY`) assina os t
 - Se um refresh token já revogado for reutilizado, o sistema revoga todas as sessões do usuário e registra `auth.refresh_token_reuse_detected`.
 
 ### Alteração de Senha
-- `POST /auth/change-password` exige autenticação Bearer.
+- `POST /api/auth/change-password` exige autenticação Bearer.
 - Ao alterar a senha, **todas as sessões ativas** do usuário são revogadas.
 - Usuário precisa fazer login novamente em cada dispositivo.
 
@@ -50,7 +50,8 @@ O sistema utiliza JWT com **RS256**. A chave privada (`PRIVATE_KEY`) assina os t
 
 | Método | Rota | Auth | Descrição |
 |--------|------|------|-----------|
-| POST | /auth/login | Não | Login |
-| POST | /auth/refresh | Não | Trocar refresh token por novo par |
-| POST | /auth/register | Sim + perm | Criar usuário (users:create) |
-| POST | /auth/change-password | Sim | Alterar senha do usuário autenticado |
+| POST | /api/auth/login | Não | Login |
+| POST | /api/auth/refresh | Não | Trocar refresh token por novo par |
+| POST | /api/auth/register | Sim + perm | Criar usuário (users:create) |
+| POST | /api/auth/change-password | Sim | Alterar senha do usuário autenticado |
+| GET | /api/auth/sessions | Sim | Listar sessões ativas do usuário autenticado |
