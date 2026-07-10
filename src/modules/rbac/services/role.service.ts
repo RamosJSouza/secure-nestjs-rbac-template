@@ -8,6 +8,8 @@ import { RbacService } from './rbac.service';
 import { User } from '../entities/user.entity';
 import { handlePgConstraintError } from '@/common/utils/pg-constraint-error.util';
 import { applyActiveFilter, applyPagination } from '@/common/utils/pagination-query.util';
+import { RequestContext } from '@/logger/request-context';
+import { assertFound } from '../utils/rbac-crud.util';
 
 @Injectable()
 export class RoleService {
@@ -67,11 +69,7 @@ export class RoleService {
             relations: ['rolePermissions', 'rolePermissions.permission', 'rolePermissions.permission.feature'],
         });
 
-        if (!role) {
-            throw new NotFoundException(`Role with ID "${id}" not found`);
-        }
-
-        return role;
+        return assertFound(role, 'Role', id);
     }
 
     async update(id: string, dto: UpdateRoleDto): Promise<Role> {
@@ -126,7 +124,7 @@ export class RoleService {
         this.logger.log(`Deleted role ${id}`);
     }
 
-    async assignPermissions(roleId: string, dto: AssignPermissionsDto, currentUserId?: string): Promise<{ permissionIds: string[] }> {
+    async assignPermissions(roleId: string, dto: AssignPermissionsDto): Promise<{ permissionIds: string[] }> {
         const exists = await this.roleRepository.exists({ where: { id: roleId } });
         if (!exists) {
             throw new NotFoundException(`Role with ID "${roleId}" not found`);
@@ -149,7 +147,8 @@ export class RoleService {
 
         await this.rbacService.invalidateRoleCache(roleId);
 
-        this.logger.log(`Assigned ${uniquePermissions.length} permissions to role ${roleId} by user ${currentUserId || 'system'}`);
+        const actor = RequestContext.getUserId() ?? 'system';
+        this.logger.log(`Assigned ${uniquePermissions.length} permissions to role ${roleId} by user ${actor}`);
 
         return { permissionIds: uniquePermissions };
     }

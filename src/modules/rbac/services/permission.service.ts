@@ -1,10 +1,11 @@
-import { Injectable, NotFoundException, ConflictException, Logger } from '@nestjs/common';
+import { Injectable, ConflictException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Permission } from '../entities/permission.entity';
 import { CreatePermissionDto, UpdatePermissionDto } from '../dto/permission.dto';
 import { RbacService } from './rbac.service';
 import { handlePgConstraintError } from '@/common/utils/pg-constraint-error.util';
+import { assertFound, ensureAffected, safeDelete } from '../utils/rbac-crud.util';
 
 @Injectable()
 export class PermissionService {
@@ -44,41 +45,24 @@ export class PermissionService {
             relations: ['feature'],
         });
 
-        if (!permission) {
-            throw new NotFoundException(`Permission with ID "${id}" not found`);
-        }
-
-        return permission;
+        return assertFound(permission, 'Permission', id);
     }
 
     async update(id: string, dto: UpdatePermissionDto): Promise<Permission> {
         const result = await this.permissionRepository.update(id, dto);
-
-        if (result.affected === 0) {
-            throw new NotFoundException(`Permission with ID "${id}" not found`);
-        }
+        ensureAffected(result, 'Permission', id);
 
         await this.rbacService.invalidateAllRoles();
         return this.findOne(id);
     }
 
     async remove(id: string): Promise<void> {
-        try {
-            const result = await this.permissionRepository.delete(id);
-            if (result.affected === 0) {
-                throw new NotFoundException(`Permission with ID "${id}" not found`);
-            }
-        } catch (err) {
-            if (err instanceof NotFoundException) {
-                throw err;
-            }
-            handlePgConstraintError(err, {
-                onForeignKey: () => {
-                    throw new ConflictException('Cannot delete permission that is assigned to roles. Revoke it first.');
-                },
-            });
-        }
-
+        await safeDelete(
+            this.permissionRepository,
+            id,
+            'Permission',
+            'Cannot delete permission that is assigned to roles. Revoke it first.',
+        );
         await this.rbacService.invalidateAllRoles();
     }
 }

@@ -1,12 +1,12 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Inject, NotFoundException } from '@nestjs/common';
 import { UsersService } from '@/users/users.service';
-import { AuthService } from '@/auth/auth.service';
+import { SESSION_REVOCATION_PORT, SessionRevocationPort } from '@/common/ports/session-revocation.port';
 
 @Injectable()
 export class UserAdminService {
   constructor(
     private readonly usersService: UsersService,
-    private readonly authService: AuthService,
+    @Inject(SESSION_REVOCATION_PORT) private readonly sessionRevocation: SessionRevocationPort,
   ) {}
 
   async setUserActive(userId: string, isActive: boolean): Promise<{ id: string; isActive: boolean }> {
@@ -19,8 +19,7 @@ export class UserAdminService {
       throw new NotFoundException('User not found');
     }
     if (!isActive) {
-      // Revoke + denylist immediately so tokens stop working without waiting for the next refresh.
-      await this.authService.revokeAllUserSessions(userId);
+      await this.sessionRevocation.revokeAllUserSessions(userId);
     }
     return { id: userId, isActive };
   }
