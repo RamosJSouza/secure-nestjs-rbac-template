@@ -74,3 +74,34 @@ describe('validationSchema (P6 purge)', () => {
     expect(error).toBeDefined();
   });
 });
+
+describe('validationSchema (ACHADO-5 single-tenant)', () => {
+  it('rejects MULTI_TENANT=true with a clear message', () => {
+    const { error } = validationSchema.validate({
+      ...baseEnv,
+      NODE_ENV: 'development',
+      MULTI_TENANT: 'true',
+    });
+    expect(error).toBeDefined();
+    expect(error?.message).toMatch(/MULTI_TENANT=true is not supported/);
+  });
+
+  it('accepts MULTI_TENANT=false', () => {
+    const { error, value } = validationSchema.validate({
+      ...baseEnv,
+      NODE_ENV: 'development',
+      MULTI_TENANT: 'false',
+    });
+    expect(error).toBeUndefined();
+    expect(value.MULTI_TENANT).toBe('false');
+  });
+
+  it('defaults MULTI_TENANT to false when unset', () => {
+    const { error, value } = validationSchema.validate({
+      ...baseEnv,
+      NODE_ENV: 'development',
+    });
+    expect(error).toBeUndefined();
+    expect(value.MULTI_TENANT).toBe('false');
+  });
+});

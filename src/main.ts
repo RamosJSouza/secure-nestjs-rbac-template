@@ -5,8 +5,10 @@ import helmet from 'helmet';
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Logger } from 'nestjs-pino';
+import { assertSingleTenant } from './config/single-tenant.guard';
 
 async function bootstrap() {
+  assertSingleTenant();
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   app.useLogger(app.get(Logger));
 

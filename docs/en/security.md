@@ -36,3 +36,7 @@
 - `DB_SSL=true` for database connections.
 - `ALLOWED_ORIGINS` must list allowed frontend URLs.
 - Seed credentials must be changed after first deploy.
+
+## Single-Tenancy
+
+This template is **single-tenant**. `MULTI_TENANT=true` is rejected at boot (both by an early `assertSingleTenant()` guard and by the Joi config schema) because PostgreSQL Row-Level Security (RLS) and a `withTenant` wrapper are not implemented — silently allowing multi-tenancy would leak data across tenants. To enable multi-tenancy, implement RLS using an `organization_id` column plus a `withTenant` wrapper (combined with `WHERE organization_id` clauses) before setting `MULTI_TENANT=true`.
