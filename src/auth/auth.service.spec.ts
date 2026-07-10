@@ -353,11 +353,20 @@ describe('AuthService', () => {
       const em: any = {
         findOne: jest.fn().mockResolvedValue({
           id: 's1', userId: 'u1', refreshTokenHash: 'hash', revokedAt: new Date(),
+          rotatedToSessionId: null,
+          expiresAt: new Date(Date.now() + 60000),
           user: { id: 'u1', email: 'u@x.com', isActive: true, lockedUntil: null },
         }),
-        getRepository: jest.fn().mockReturnValue({ createQueryBuilder: () => qb, find: jest.fn().mockResolvedValue([]) }),
+        getRepository: jest.fn().mockReturnValue({
+          createQueryBuilder: () => qb,
+          find: jest.fn().mockResolvedValue([{ accessJti: 'a1' }, { accessJti: 'a2' }]),
+        }),
         save: jest.fn().mockResolvedValue(undefined),
         create: jest.fn().mockReturnValue({ id: 's2' }),
+      };
+      (service as any).cacheManager = {
+        set: jest.fn().mockResolvedValue(undefined),
+        get: jest.fn().mockResolvedValue(undefined),
       };
       const txMock = jest.fn(async (cb: any) => cb(em));
       (sessionRepo as any).manager = { transaction: txMock };
@@ -372,6 +381,34 @@ describe('AuthService', () => {
           actorUserId: null,
           metadata: expect.objectContaining({ suspectedReuse: true, revokedSessionCount: 2 }),
         }),
+      );
+    });
+
+    it('on already-rotated session: throws without bulk-revoking (no false-positive reuse)', async () => {
+      jest.spyOn(service as any, 'hashRefreshToken').mockReturnValue('hash');
+      mockJwtService.verify.mockReturnValue({
+        sub: 'u1', email: 't@x.com', tokenType: 'refresh', exp: Math.floor(Date.now() / 1000) + 3600,
+      });
+      const reusedExecute = jest.fn().mockResolvedValue({ affected: 99 }); // must NOT be called
+      const qb: any = {
+        update: jest.fn().mockReturnThis(), set: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(), execute: reusedExecute,
+      };
+      const em: any = {
+        findOne: jest.fn().mockResolvedValue({
+          id: 's1', userId: 'u1', refreshTokenHash: 'hash',
+          revokedAt: new Date(), rotatedToSessionId: 's2',
+          expiresAt: new Date(Date.now() + 60000),
+        }),
+        getRepository: jest.fn().mockReturnValue({ createQueryBuilder: () => qb, find: jest.fn().mockResolvedValue([]) }),
+        save: jest.fn(), create: jest.fn(),
+      };
+      (sessionRepo as any).manager = { transaction: jest.fn(async (cb: any) => cb(em)) };
+
+      await expect(service.refresh({ refresh_token: 't' })).rejects.toThrow(UnauthorizedException);
+      expect(reusedExecute).not.toHaveBeenCalled();
+      expect(auditLogService.log).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'auth.refresh_token_reuse_detected' }),
       );
     });
 

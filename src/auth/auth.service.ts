@@ -207,6 +207,10 @@ export class AuthService {
       const now = new Date();
 
       if (session.revokedAt) {
+        if (session.rotatedToSessionId) {
+          // Legitimate prior rotation: the token was already replaced.
+          throw new UnauthorizedException('Refresh token already rotated');
+        }
         const revokedCount = await this.revokeAllUserSessions(
           session.userId,
           em.getRepository(Session),
@@ -255,13 +259,6 @@ export class AuthService {
             }
           : undefined;
 
-      await em
-        .createQueryBuilder()
-        .update(Session)
-        .set({ revokedAt: () => 'NOW()' })
-        .where('id = :id', { id: session.id })
-        .execute();
-
       const { accessToken, refreshToken, accessJti, refreshJti, expiresAt } = this.buildTokenPair(user);
       const newSession = em.create(Session, {
         userId: user.id,
@@ -274,6 +271,13 @@ export class AuthService {
         rotatedFromSessionId: session.id,
       });
       await em.save(newSession);
+
+      await em
+        .createQueryBuilder()
+        .update(Session)
+        .set({ revokedAt: () => 'NOW()', rotatedToSessionId: newSession.id })
+        .where('id = :id', { id: session.id })
+        .execute();
 
       return {
         kind: 'success' as const,
