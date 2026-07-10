@@ -1,0 +1,95 @@
+# Prime Nest — Secure NestJS RBAC Template (JWT RS256)
+
+> Reference NestJS backend for regulated, security-sensitive environments (fintech/healthtech/enterprise SaaS). Production-grade, security-hardened, TDD, audit-ready. Single-tenant. Built with intensive Claude Code assistance.
+
+- Author: Ramos de Souza Janones — https://ramosdainformatica.com.br/ · https://www.linkedin.com/in/ramos-souza/ · https://github.com/RamosJSouza
+- Repo language: TypeScript (NestJS). Bilingual docs: English + Português (PT-BR).
+- Stack: NestJS · PostgreSQL + TypeORM · Redis (optional, shared cache + JWT denylist) · JWT RS256 · Class-Validator + Joi · Pino · Swagger.
+
+## Core architecture
+
+- Module flow is strictly unidirectional: Controller -> Service -> Repository. ORM/DB never imported at the Controller layer.
+- Active AppModule imports: AuthModule, UsersModule, RbacModule, AuditModule, HealthModule, MaintenanceModule, GracefulShutdownModule, LoggerModule (+ OptionalBullModule when REDIS_HOST is set).
+- TasksModule exists in code but is NOT imported by AppModule.
+- Data model: User -> Role -> RolePermission -> Permission -> Feature. RBAC is database-driven (no hardcoded roles); changes take effect immediately.
+- Route protection: JwtAuthGuard + PermissionGuard with @RequirePermissions('feature:action').
+
+## Authentication & authorization
+
+- JWT RS256: PRIVATE_KEY signs, PUBLIC_KEY verifies. Access token 15min, refresh token 7d with rotation + reuse detection.
+- Payload: sub, email, roleId.
+- JTI denylist in Redis (per access JTI, TTL 15min). Without REDIS_HOST, denylist is per-process in-memory.
+- Password change revokes all user sessions. Account lockout: 5 failed attempts -> 15-minute lock.
+- Guards (JwtAuthGuard, PermissionGuard) only do context extraction + permission checks via Reflector; no business logic or heavy DB queries inside guards.
+
+## Database
+
+- PostgreSQL + TypeORM (NOT Drizzle). Options in src/config/database.options.ts; CLI/migrations use src/config/typeorm.datasource.ts.
+- Env vars use DB_* (not POSTGRES_*). synchronize disabled in production.
+- Row-Level Security / tenant isolation: withTenant wrapper with WHERE organization_id clauses where RLS applies.
+
+## Caching & RBAC performance
+
+- RBAC permission cache key: rbac:role:{roleId}:permissions, TTL RBAC_CACHE_TTL (default 300000ms / 5min).
+- Global invalidation epoch: rbac:global:epoch (no TTL, persisted in Redis) for cross-replica cache invalidation.
+- Hot path getPermissionsForRole uses a single vectorized TypeORM QueryBuilder query (INNER JOIN rp -> permission -> feature) instead of find+relations, returning "featureKey:action" strings.
+- Admin mutation invalidation is granular by role (invalidateRoles) for Permission update/remove; FeatureService keeps invalidateAllRoles (Feature.key change affects every role's cached strings).
+- user:{sub} cache TTL 30s. jti:{accessJti} TTL 15min.
+
+## Validation & error handling
+
+- Global ValidationPipe with whitelist: true and forbidNonWhitelisted: true (prevents Mass Assignment).
+- @ValidateNested() MUST be paired with @Type(() => DestinationClass). @Body() body: any is forbidden; DTOs require strong typing.
+- Creation DTOs must not be recycled for updates; use PartialType() derivation.
+- Silent error suppression (catch (e) { return null }) is forbidden. Emit semantic NestJS exceptions (NotFoundException, ConflictException, UnauthorizedException).
+- Global Exception Filters sanitize stack traces in production.
+
+## Key conventions
+
+- DTOs in dto/. Entities in entities/. Guards in common/guards/.
+- Repository layer: isolated data mappers; repositories MUST NOT import other repositories. Cross-repo orchestration belongs in Services.
+- A Service with >8 constructor dependencies is a "God Object" -> refactor to Use-Case services.
+- Swagger at /api/docs. Global API prefix defaults to /api (configurable via API_PREFIX).
+
+## Main environment variables
+
+- DB_* — PostgreSQL connection.
+- PRIVATE_KEY, PUBLIC_KEY — RSA keys for JWT.
+- REDIS_HOST, REDIS_PORT — cache, health, async audit (BullMQ); without Redis, audit uses synchronous fallback.
+- PURGE_*, AUDIT_RETENTION_DAYS, SESSION_GRACE_DAYS — purge crons (MaintenanceModule).
+- PORT, NODE_ENV (development|production|test), ALLOWED_ORIGINS (required in production).
+
+## Development commands
+
+```
+npm run dev               # dev with hot-reload
+npm run build && npm run start:prod
+npm test                  # all tests
+npm test -- src/auth/auth.service.spec.ts   # single spec
+npm run test:cov
+npm run format && npm run lint
+npm run schema:sync       # dev only
+npm run migration:generate -- src/migrations/NomeMigracao
+npm run migration:run
+npm run migration:revert
+npm run seed:rbac
+npm run docker:up / npm run docker:down
+```
+
+## Optional links (deeper context)
+
+- [README](README.md): overview, quick start, security model, tech stack.
+- [CLAUDE.md](CLAUDE.md): agent guidance, commands, architecture rules, security review axes.
+- [Economia de Desenvolvimento e Custo de Tokens de IA (PT-BR)](docs/pt-br/economia-desenvolvimento-ia.md): AI-assisted dev time savings + token cost estimate (Claude Code).
+- [Arquitetura (PT-BR)](docs/pt-br/arquitetura.md): modules, data flow, directory structure.
+- [Autenticação (PT-BR)](docs/pt-br/autenticacao.md): JWT RS256, rotation, lockout.
+- [RBAC (PT-BR)](docs/pt-br/rbac.md): feature/permission/role model and guards.
+- [Segurança (PT-BR)](docs/pt-br/seguranca.md): rate limit, CORS, validation, audit.
+- [Configuração (PT-BR)](docs/pt-br/configuracao.md): env vars, Joi validation.
+- [Observabilidade (PT-BR)](docs/pt-br/observabilidade.md): Pino, correlation ID, health.
+- [Architecture (EN)](docs/en/architecture.md)
+- [Authentication (EN)](docs/en/authentication.md)
+- [RBAC (EN)](docs/en/rbac.md)
+- [Security (EN)](docs/en/security.md)
+- [Configuration (EN)](docs/en/configuration.md)
+- [Observability (EN)](docs/en/observability.md)

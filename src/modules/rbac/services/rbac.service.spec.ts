@@ -34,6 +34,20 @@ function mockRedisConfigured(config: { get: jest.Mock }) {
     });
 }
 
+function rawRow(featureKey: string, action: string) {
+    return { feature_key: featureKey, action };
+}
+
+function qbReturning(rows: Array<{ feature_key: string; action: string }>) {
+    const qb: Record<string, jest.Mock> = {
+        innerJoin: jest.fn().mockReturnThis(),
+        select: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        getRawMany: jest.fn().mockResolvedValue(rows),
+    };
+    return qb;
+}
+
 describe('RbacService', () => {
     let service: RbacService;
     let mockRepository: any;
@@ -42,7 +56,7 @@ describe('RbacService', () => {
 
     beforeEach(async () => {
         mockRepository = {
-            find: jest.fn(),
+            createQueryBuilder: jest.fn(),
         };
 
         mockCacheManager = {
@@ -96,11 +110,9 @@ describe('RbacService', () => {
             const requiredPermissions = ['test:view', 'test:edit'];
 
             mockCacheManager.get.mockResolvedValue(null);
-
-            mockRepository.find.mockResolvedValue([
-                { permission: { action: 'view', feature: { key: 'test' } } },
-                { permission: { action: 'edit', feature: { key: 'test' } } },
-            ]);
+            mockRepository.createQueryBuilder.mockReturnValue(
+                qbReturning([rawRow('test', 'view'), rawRow('test', 'edit')]),
+            );
 
             const result = await service.checkPermissions(roleId, requiredPermissions);
             expect(result).toBe(true);
@@ -128,15 +140,14 @@ describe('RbacService', () => {
 
             const result = await service.checkPermissions(roleId, ['test:view']);
             expect(result).toBe(true);
-            expect(mockRepository.find).not.toHaveBeenCalled();
+            expect(mockRepository.createQueryBuilder).not.toHaveBeenCalled();
         });
 
         it('should handle cache error gracefully (fallback to DB)', async () => {
             mockCacheManager.get.mockRejectedValue(new Error('Redis down'));
-
-            mockRepository.find.mockResolvedValue([
-                { permission: { action: 'view', feature: { key: 'test' } } }
-            ]);
+            mockRepository.createQueryBuilder.mockReturnValue(
+                qbReturning([rawRow('test', 'view')]),
+            );
 
             const result = await service.getPermissionsForRole('role-123');
             expect(result).toEqual(['test:view']);
@@ -151,14 +162,13 @@ describe('RbacService', () => {
             });
             mockRedisConfigured(mockConfigService);
             mockReadRbacGlobalEpoch.mockResolvedValue(1);
-
-            mockRepository.find.mockResolvedValue([
-                { permission: { action: 'view', feature: { key: 'test' } } },
-            ]);
+            mockRepository.createQueryBuilder.mockReturnValue(
+                qbReturning([rawRow('test', 'view')]),
+            );
 
             const result = await service.getPermissionsForRole('role-123');
             expect(result).toEqual(['test:view']);
-            expect(mockRepository.find).toHaveBeenCalled();
+            expect(mockRepository.createQueryBuilder).toHaveBeenCalled();
             expect(mockReadRbacGlobalEpoch).toHaveBeenCalled();
             expect(mockCacheManager.get).not.toHaveBeenCalledWith('rbac:global:epoch', expect.anything());
         });
@@ -176,15 +186,43 @@ describe('RbacService', () => {
         });
     });
 
+    describe('invalidateRoles', () => {
+        it('is a no-op when no role ids are provided', async () => {
+            mockRedisConfigured(mockConfigService);
+            mockIncrementRbacGlobalEpoch.mockResolvedValue(2);
+
+            await service.invalidateRoles([]);
+
+            expect(mockIncrementRbacGlobalEpoch).not.toHaveBeenCalled();
+        });
+
+        it('bumps epoch once and clears only the supplied roles tracking', async () => {
+            mockRedisConfigured(mockConfigService);
+            mockReadRbacGlobalEpoch.mockResolvedValue(0);
+            mockIncrementRbacGlobalEpoch.mockResolvedValue(1);
+            mockCacheManager.get.mockResolvedValue(null);
+            mockRepository.createQueryBuilder.mockReturnValue(
+                qbReturning([rawRow('test', 'view')]),
+            );
+
+            await service.getPermissionsForRole('role-a');
+            await service.getPermissionsForRole('role-b');
+
+            await service.invalidateRoles(['role-a']);
+
+            expect(mockIncrementRbacGlobalEpoch).toHaveBeenCalledTimes(1);
+        });
+    });
+
     describe('invalidateAllRoles', () => {
         it('bumps epoch via Redis INCR after roles were cached locally', async () => {
             mockRedisConfigured(mockConfigService);
             mockReadRbacGlobalEpoch.mockResolvedValue(0);
             mockIncrementRbacGlobalEpoch.mockResolvedValue(1);
             mockCacheManager.get.mockResolvedValue(null);
-            mockRepository.find.mockResolvedValue([
-                { permission: { action: 'view', feature: { key: 'test' } } },
-            ]);
+            mockRepository.createQueryBuilder.mockReturnValue(
+                qbReturning([rawRow('test', 'view')]),
+            );
 
             await service.getPermissionsForRole('role-1');
             await service.getPermissionsForRole('role-2');
@@ -199,19 +237,25 @@ describe('RbacService', () => {
         });
 
         it('does not cache stale data when a mutation invalidates during an in-flight fetch', async () => {
-            let resolveFind: (v: any) => void = () => {};
+            let resolveRaw: (v: any) => void = () => {};
+            const qb: Record<string, jest.Mock> = {
+                innerJoin: jest.fn().mockReturnThis(),
+                select: jest.fn().mockReturnThis(),
+                where: jest.fn().mockReturnThis(),
+                getRawMany: jest.fn().mockReturnValue(
+                    new Promise((resolve) => { resolveRaw = resolve; }),
+                ),
+            };
             mockCacheManager.get.mockResolvedValue(null);
-            mockRepository.find.mockReturnValue(
-                new Promise((resolve) => { resolveFind = resolve; }),
-            );
+            mockRepository.createQueryBuilder.mockReturnValue(qb);
 
             const pending = service.getPermissionsForRole('role-x');
             await new Promise((resolve) => setImmediate(resolve));
-            expect(mockRepository.find).toHaveBeenCalled();
+            expect(mockRepository.createQueryBuilder).toHaveBeenCalled();
 
             await service.invalidateAllRoles();
 
-            resolveFind([{ permission: { action: 'view', feature: { key: 'test' } } }]);
+            resolveRaw([rawRow('test', 'view')]);
             await pending;
 
             expect(mockCacheManager.set).not.toHaveBeenCalled();

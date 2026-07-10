@@ -5,6 +5,7 @@ import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Cache } from 'cache-manager';
 import { ConfigService } from '@nestjs/config';
 import { RolePermission } from '../entities/role-permission.entity';
+import { fetchPermissionStringsForRole } from '../repositories/role-permission.query';
 import { isRedisConfigured } from '@/config/redis-connection.factory';
 import { getErrorMessage } from '@/common/utils/error-message.util';
 import {
@@ -94,8 +95,18 @@ export class RbacService {
         }
     }
 
+    private rolePermissionCacheKey(roleId: string): string {
+        return `rbac:role:${roleId}:permissions`;
+    }
+
+    private clearRoleCacheKey(roleId: string): void {
+        const cacheKey = this.rolePermissionCacheKey(roleId);
+        this.pendingRequests.delete(cacheKey);
+        this.cachedRoleKeys.delete(cacheKey);
+    }
+
     async getPermissionsForRole(roleId: string): Promise<string[]> {
-        const cacheKey = `rbac:role:${roleId}:permissions`;
+        const cacheKey = this.rolePermissionCacheKey(roleId);
         let currentEpoch: number | undefined;
 
         try {
@@ -115,24 +126,9 @@ export class RbacService {
         const fetchPromise = (async () => {
             const epochSnapshot = this.invalidationEpoch;
             try {
-                const rolePermissions = await this.rolePermissionRepository.find({
-                    where: { roleId },
-                    relations: ['permission', 'permission.feature'],
-                    select: {
-                        id: true,
-                        permission: {
-                            id: true,
-                            action: true,
-                            feature: {
-                                id: true,
-                                key: true,
-                            },
-                        },
-                    },
-                });
-
-                const permissions = rolePermissions.map(
-                    (rp) => `${rp.permission.feature.key}:${rp.permission.action}`,
+                const permissions = await fetchPermissionStringsForRole(
+                    this.rolePermissionRepository,
+                    roleId,
                 );
 
                 if (epochSnapshot === this.invalidationEpoch) {
@@ -155,11 +151,18 @@ export class RbacService {
     }
 
     async invalidateRoleCache(roleId: string): Promise<void> {
-        const cacheKey = `rbac:role:${roleId}:permissions`;
         await this.bumpGlobalEpoch();
-        this.pendingRequests.delete(cacheKey);
-        this.cachedRoleKeys.delete(cacheKey);
+        this.clearRoleCacheKey(roleId);
         this.logger.log(`Invalidated cache for role ${roleId}`);
+    }
+
+    async invalidateRoles(roleIds: string[]): Promise<void> {
+        if (!roleIds.length) return;
+        await this.bumpGlobalEpoch();
+        for (const roleId of roleIds) {
+            this.clearRoleCacheKey(roleId);
+        }
+        this.logger.log(`Invalidated cache for ${roleIds.length} role(s)`);
     }
 
     /**

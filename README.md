@@ -152,12 +152,32 @@ When integrating AI into regulated systems, structured logs, correlation IDs, an
 
 ---
 
+## AI-Assisted Development Economics
+
+This repository was built with intensive **Claude Code** assistance (Anthropic API, BYOK mode). A detailed estimate — methodology, assumptions, and dated pricing — is in [Economia de Desenvolvimento e Custo de Tokens de IA (PT-BR)](docs/pt-br/economia-desenvolvimento-ia.md).
+
+Headline figures (pricing verified **July 2026**):
+
+| Metric | Estimate |
+|--------|----------|
+| Codebase size | ~6,900 TS lines (123 files, 28 specs, 8 NestJS modules) |
+| Manual build time (senior, TDD, security-hardened) | ~79 dev-days (~3.6 months) |
+| Human steering effort with Claude Code | ~8 dev-days |
+| **Development time saved** | **~70 dev-days (~3.2 months of 1 senior engineer)** |
+| Compression factor | ~8–12× |
+| AI token cost (central estimate, ~15M tokens) | **~$130–$150** |
+| Token-cost ROI vs. saved senior labor (US) | ~250–900× |
+
+Cross-check: Anthropic's enterprise benchmark (~$13/dev-active-day) × ~10 steering dev-days ≈ ~$130, consistent with the central estimate.
+
+---
+
 ## Documentation
 
 | Language | Links |
 |----------|-------|
 | **English** | [Architecture](docs/en/architecture.md) · [Authentication](docs/en/authentication.md) · [RBAC](docs/en/rbac.md) · [Configuration](docs/en/configuration.md) · [Observability](docs/en/observability.md) · [Security](docs/en/security.md) |
-| **Português** | [Arquitetura](docs/pt-br/arquitetura.md) · [Autenticação](docs/pt-br/autenticacao.md) · [RBAC](docs/pt-br/rbac.md) · [Configuração](docs/pt-br/configuracao.md) · [Observabilidade](docs/pt-br/observabilidade.md) · [Segurança](docs/pt-br/seguranca.md) |
+| **Português** | [Arquitetura](docs/pt-br/arquitetura.md) · [Autenticação](docs/pt-br/autenticacao.md) · [RBAC](docs/pt-br/rbac.md) · [Configuração](docs/pt-br/configuracao.md) · [Observabilidade](docs/pt-br/observabilidade.md) · [Segurança](docs/pt-br/seguranca.md) · [Economia de Dev com IA](docs/pt-br/economia-desenvolvimento-ia.md) |
 
 (See `/docs` directory)
 
@@ -236,6 +256,7 @@ Let's connect.
 | [Restrições de arquitetura](#architecture-constraints) | Single-tenant, Swagger, migrations |
 | [Stack tecnológica](#tech-stack) | NestJS, PostgreSQL, Redis, JWT |
 | [Contexto real](#real-world-context-behind-this-design) | Pagamentos, healthcare, AI |
+| [Economia de desenvolvimento com IA](#ai-assisted-development-economics) | Tempo poupado, custo de tokens, ROI |
 | [Documentação](#documentation) | Links para docs em inglês e português |
 | [Quick Start](#quick-start) | Passos para rodar o projeto |
 | [Para líderes de engenharia](#for-engineering-leaders) | Casos de uso do repositório |

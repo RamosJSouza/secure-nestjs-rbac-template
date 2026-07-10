@@ -64,10 +64,13 @@ export class RoleService {
     }
 
     async findOne(id: string): Promise<Role> {
-        const role = await this.roleRepository.findOne({
-            where: { id },
-            relations: ['rolePermissions', 'rolePermissions.permission', 'rolePermissions.permission.feature'],
-        });
+        const role = await this.roleRepository
+            .createQueryBuilder('role')
+            .leftJoinAndSelect('role.rolePermissions', 'rp')
+            .leftJoinAndSelect('rp.permission', 'p')
+            .leftJoinAndSelect('p.feature', 'f')
+            .where('role.id = :id', { id })
+            .getOne();
 
         return assertFound(role, 'Role', id);
     }
