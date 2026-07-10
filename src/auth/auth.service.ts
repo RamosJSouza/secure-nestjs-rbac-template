@@ -72,10 +72,29 @@ export class AuthService {
     return { accessToken, refreshToken, accessJti, refreshJti, expiresAt };
   }
 
-  private async revokeAllUserSessions(
+  private async denylistActiveAccessJtis(
+    userId: string,
+    repo: Repository<Session>,
+  ): Promise<void> {
+    const sessions = await repo.find({
+      where: { userId, revokedAt: IsNull() },
+      select: ['id', 'accessJti'],
+    });
+    await Promise.all(
+      sessions
+        .filter((s): s is Session & { accessJti: string } => !!s.accessJti)
+        .map((s) => this.cacheManager.set(`jti:${s.accessJti}`, 1, ACCESS_TOKEN_EXPIRES_MS)),
+    );
+  }
+
+  // Public: chamado por UserAdminService (Task 7) para revogar+denylista em massa
+  // ao desativar um utilizador. Os callers internos (changePassword, logoutAll,
+  // ramo de reuso) continuam a funcionar sem alteração.
+  async revokeAllUserSessions(
     userId: string,
     repo: Repository<Session> = this.sessionRepository,
   ): Promise<number> {
+    await this.denylistActiveAccessJtis(userId, repo);
     const result = await repo
       .createQueryBuilder()
       .update(Session)

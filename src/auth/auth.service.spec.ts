@@ -355,7 +355,7 @@ describe('AuthService', () => {
           id: 's1', userId: 'u1', refreshTokenHash: 'hash', revokedAt: new Date(),
           user: { id: 'u1', email: 'u@x.com', isActive: true, lockedUntil: null },
         }),
-        getRepository: jest.fn().mockReturnValue({ createQueryBuilder: () => qb }),
+        getRepository: jest.fn().mockReturnValue({ createQueryBuilder: () => qb, find: jest.fn().mockResolvedValue([]) }),
         save: jest.fn().mockResolvedValue(undefined),
         create: jest.fn().mockReturnValue({ id: 's2' }),
       };
@@ -451,6 +451,7 @@ describe('AuthService', () => {
       const setSpy = jest.fn().mockResolvedValue(undefined);
       const executeMock = jest.fn().mockResolvedValue({ affected: 3 });
       (service as any).cacheManager = { set: setSpy };
+      sessionRepo.find = jest.fn().mockResolvedValue([]) as any;
       sessionRepo.createQueryBuilder = jest.fn(() => ({
         update: jest.fn(() => ({ set: jest.fn(() => ({ where: jest.fn(() => ({ execute: executeMock })) })) })),
       })) as any;
@@ -495,6 +496,47 @@ describe('AuthService', () => {
 
       expect(setSpy).not.toHaveBeenCalled();
       expect(executeMock).toHaveBeenCalled();
+    });
+  });
+
+  describe('changePassword / logoutAll denylist', () => {
+    it('changePassword denylists every active access JTI of the user, not just the current one', async () => {
+      const setSpy = jest.fn().mockResolvedValue(undefined);
+      (service as any).cacheManager = { set: setSpy, get: jest.fn().mockResolvedValue(undefined) };
+      // revokeAllUserSessions does find() on active sessions before the update
+      sessionRepo.find = jest.fn().mockResolvedValue([
+        { accessJti: 'a1' }, { accessJti: 'a2' }, { accessJti: null },
+      ]) as any;
+      const executeMock = jest.fn().mockResolvedValue({ affected: 2 });
+      sessionRepo.createQueryBuilder = jest.fn(() => ({
+        update: jest.fn(() => ({ set: jest.fn(() => ({ where: jest.fn(() => ({ execute: executeMock })) })) })),
+      })) as any;
+      mockUsersService.findByIdWithPassword.mockResolvedValue({
+        id: 'u1', email: 't@x.com', password: 'h', isActive: true,
+      });
+      const bcryptjs = await import('bcryptjs');
+      jest.spyOn(bcryptjs, 'compare').mockResolvedValue(true as never);
+      jest.spyOn(bcryptjs, 'hash').mockResolvedValue('newhash' as never);
+
+      await service.changePassword('u1', 'old', 'NewP@ssw0rd1234');
+
+      expect(setSpy).toHaveBeenCalledWith('jti:a1', 1, expect.any(Number));
+      expect(setSpy).toHaveBeenCalledWith('jti:a2', 1, expect.any(Number));
+    });
+
+    it('logoutAll denylists all active access JTIs of the user (not only the caller JTI)', async () => {
+      const setSpy = jest.fn().mockResolvedValue(undefined);
+      (service as any).cacheManager = { set: setSpy };
+      sessionRepo.find = jest.fn().mockResolvedValue([{ accessJti: 'other-jti' }]) as any;
+      const executeMock = jest.fn().mockResolvedValue({ affected: 1 });
+      sessionRepo.createQueryBuilder = jest.fn(() => ({
+        update: jest.fn(() => ({ set: jest.fn(() => ({ where: jest.fn(() => ({ execute: executeMock })) })) })),
+      })) as any;
+
+      await service.logoutAll('u1', 'current-jti');
+
+      expect(setSpy).toHaveBeenCalledWith('jti:current-jti', 1, expect.any(Number));
+      expect(setSpy).toHaveBeenCalledWith('jti:other-jti', 1, expect.any(Number));
     });
   });
 
