@@ -48,4 +48,10 @@ export class Session {
 
   @Column({ type: 'uuid', nullable: true })
   jti: string | null;
+
+  @Column({ name: 'access_jti', type: 'uuid', nullable: true })
+  accessJti: string | null;
+
+  @Column({ name: 'rotated_to_session_id', type: 'uuid', nullable: true })
+  rotatedToSessionId: string | null;
 }
