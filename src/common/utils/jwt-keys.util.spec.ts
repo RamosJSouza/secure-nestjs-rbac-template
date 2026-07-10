@@ -24,4 +24,18 @@ describe('jwt-keys.util', () => {
   it('assertValidJwtKeyPair throws for invalid keys', () => {
     expect(() => assertValidJwtKeyPair('not-a-key', publicKey)).toThrow();
   });
+
+  it('assertValidJwtKeyPair throws when the public key does not match the private key', () => {
+    const other = generateTestRsaKeyPair();
+    expect(() => assertValidJwtKeyPair(privateKey, other.publicKey)).toThrow();
+  });
+
+  it('isValidJwtKeyPair returns false when the public key does not match the private key', () => {
+    const other = generateTestRsaKeyPair();
+    expect(isValidJwtKeyPair(privateKey, other.publicKey)).toBe(false);
+  });
+
+  it('assertValidJwtKeyPair accepts a correctly matched pair', () => {
+    expect(() => assertValidJwtKeyPair(privateKey, publicKey)).not.toThrow();
+  });
 });

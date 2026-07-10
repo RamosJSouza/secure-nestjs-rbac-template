@@ -24,6 +24,7 @@ describe('changePassword (S2)', () => {
     };
     executeMock = jest.fn().mockResolvedValue({ affected: 1 });
     const sessionRepo: any = {
+      find: jest.fn().mockResolvedValue([]),
       createQueryBuilder: jest.fn(() => ({
         update: jest.fn(() => ({ set: jest.fn(() => ({ where: jest.fn(() => ({ execute: executeMock })) })) })),
       })),

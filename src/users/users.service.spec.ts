@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { UnauthorizedException } from '@nestjs/common';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { UsersService } from './users.service';
@@ -176,6 +177,19 @@ describe('UsersService', () => {
       expect(cacheManager.del).toHaveBeenCalledWith('user:u1');
     });
 
+    it('setActive updates isActive and invalidates the user cache', async () => {
+      mockRepository.update.mockResolvedValue({ affected: 1 });
+      cacheManager.del.mockResolvedValue(undefined);
+      expect(await service.setActive('u1', false)).toBe(1);
+      expect(mockRepository.update).toHaveBeenCalledWith({ id: 'u1' }, { isActive: false });
+      expect(cacheManager.del).toHaveBeenCalledWith('user:u1');
+    });
+
+    it('setActive returns 0 when no row is updated', async () => {
+      mockRepository.update.mockResolvedValue({ affected: 0 });
+      expect(await service.setActive('missing', false)).toBe(0);
+    });
+
     it('recordFailedLogin invalidates the user cache', async () => {
       const em = {
         increment: jest.fn().mockResolvedValue(undefined),
@@ -192,6 +206,19 @@ describe('UsersService', () => {
       cacheManager.del.mockResolvedValue(undefined);
       await service.recordFailedLogin('u1');
       expect(cacheManager.del).toHaveBeenCalledWith('user:u1');
+    });
+
+    it('recordFailedLogin throws UnauthorizedException when user row is missing', async () => {
+      const em = {
+        increment: jest.fn().mockResolvedValue(undefined),
+        findOne: jest.fn().mockResolvedValue(null),
+        save: jest.fn(),
+      };
+      (mockRepository as any).manager = {
+        transaction: jest.fn(async (cb: any) => cb(em)),
+      };
+      await expect(service.recordFailedLogin('u1')).rejects.toThrow(UnauthorizedException);
+      expect(cacheManager.del).not.toHaveBeenCalled();
     });
   });
 

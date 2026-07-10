@@ -1,8 +1,16 @@
 import { createPrivateKey, createPublicKey, generateKeyPairSync } from 'crypto';
 
 export function assertValidJwtKeyPair(privateKey: string, publicKey: string): void {
-  createPrivateKey({ key: privateKey });
-  createPublicKey({ key: publicKey });
+  const priv = createPrivateKey({ key: privateKey });
+  const pub = createPublicKey({ key: publicKey });
+  const derivedFromPrivate = createPublicKey(priv);
+  const providedDer = pub.export({ type: 'spki', format: 'der' });
+  const derivedDer = derivedFromPrivate.export({ type: 'spki', format: 'der' });
+  if (!providedDer.equals(derivedDer)) {
+    throw new Error(
+      'JWT RSA key pair mismatch: PUBLIC_KEY does not correspond to PRIVATE_KEY',
+    );
+  }
 }
 
 export function isValidJwtKeyPair(privateKey: string, publicKey: string): boolean {

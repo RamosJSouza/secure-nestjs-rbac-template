@@ -8,12 +8,29 @@ import { UsersService } from 'src/users/users.service';
 import { AuditLogService } from '@/modules/audit/audit-log.service';
 import { Session } from '@/modules/auth/entities/session.entity';
 import { Role } from '@/modules/rbac/entities/role.entity';
+import { User } from '@/modules/rbac/entities/user.entity';
 import { INVALID_CREDENTIALS_MESSAGE } from './auth.constants';
 
 describe('AuthService', () => {
   let service: AuthService;
   let sessionRepo: any;
   let auditLogService: any;
+
+  const buildUpdateQb = (executeMock: jest.Mock) => ({
+    update: jest.fn(() => ({
+      set: jest.fn(() => ({
+        where: jest.fn(() => ({ execute: executeMock })),
+      })),
+    })),
+  });
+
+  const mockCacheManager = (setMock: jest.Mock = jest.fn().mockResolvedValue(undefined)): jest.Mock => {
+    (service as any).cacheManager = {
+      set: setMock,
+      get: jest.fn().mockResolvedValue(undefined),
+    };
+    return setMock;
+  };
 
   const mockJwtService = { sign: jest.fn(), verify: jest.fn() };
   const mockUsersService = {
@@ -32,15 +49,7 @@ describe('AuthService', () => {
       findOne: jest.fn(),
       save: jest.fn(),
       create: jest.fn((x) => x),
-      createQueryBuilder: jest.fn(() => ({
-        update: jest.fn(() => ({
-          set: jest.fn(() => ({
-            where: jest.fn(() => ({
-              execute: jest.fn().mockResolvedValue({ affected: 0 }),
-            })),
-          })),
-        })),
-      })),
+      createQueryBuilder: jest.fn(() => buildUpdateQb(jest.fn().mockResolvedValue({ affected: 0 }))),
     };
     auditLogService = { log: jest.fn().mockResolvedValue(undefined) };
 
@@ -277,23 +286,37 @@ describe('AuthService', () => {
         tokenType: 'refresh',
         exp: Math.floor(Date.now() / 1000) + 3600,
       });
-      const emFindOne = jest.fn().mockResolvedValue({
-        id: 's1',
-        userId: 'u1',
-        refreshTokenHash: 'hash',
-        revokedAt: null,
-        expiresAt: new Date(Date.now() + 60000),
-        user: lockedUser,
-      });
+      const lockedExecute = jest.fn().mockResolvedValue({ affected: 1 });
+      const lockedQb = {
+        update: jest.fn().mockReturnThis(),
+        set: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        execute: lockedExecute,
+      };
+      const emFindOne = jest.fn()
+        .mockResolvedValueOnce({
+          id: 's1', userId: 'u1', refreshTokenHash: 'hash', revokedAt: null,
+          expiresAt: new Date(Date.now() + 60000),
+        })
+        .mockResolvedValueOnce(lockedUser);
       const txMock = jest.fn(async (cb: any) => cb({
         findOne: emFindOne,
         save: jest.fn().mockResolvedValue(undefined),
         create: jest.fn((_: any, d: any) => d),
+        getRepository: () => ({
+          find: jest.fn().mockResolvedValue([{ accessJti: 'a1' }]),
+          createQueryBuilder: () => lockedQb,
+        }),
       }));
       (sessionRepo as any).manager = { transaction: txMock };
+      mockCacheManager();
       jest.spyOn(service as any, 'hashRefreshToken').mockReturnValue('hash');
       await expect(service.refresh({ refresh_token: 't' })).rejects.toThrow(
         INVALID_CREDENTIALS_MESSAGE,
+      );
+      expect(lockedExecute).toHaveBeenCalled();
+      expect(auditLogService.log).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'auth.refresh_denied_invalid_user' }),
       );
     });
 
@@ -301,12 +324,14 @@ describe('AuthService', () => {
       mockJwtService.verify.mockReturnValue({
         sub: 'u1', email: 't@x.com', tokenType: 'refresh', jti: 'rjti', exp: Math.floor(Date.now() / 1000) + 3600,
       });
-      const lockedSession = {
+      const sessionOnly = {
         id: 's1', userId: 'u1', refreshTokenHash: 'hash', revokedAt: null,
         expiresAt: new Date(Date.now() + 60000),
-        user: { id: 'u1', email: 't@x.com', roleId: 'r', isActive: true, lockedUntil: null },
       };
-      const emFindOne = jest.fn().mockResolvedValue(lockedSession);
+      const user = { id: 'u1', email: 't@x.com', roleId: 'r', isActive: true, lockedUntil: null };
+      const emFindOne = jest.fn()
+        .mockResolvedValueOnce(sessionOnly)
+        .mockResolvedValueOnce(user);
       const emSave = jest.fn().mockResolvedValue(undefined);
       const revokeExecute = jest.fn().mockResolvedValue(undefined);
       const emQb = {
@@ -315,7 +340,7 @@ describe('AuthService', () => {
         where: jest.fn().mockReturnThis(),
         execute: revokeExecute,
       };
-      const emCreate = jest.fn((_target: any, data: any) => data);
+      const emCreate = jest.fn((_target: any, data: any) => ({ id: 's2', ...data }));
       const txMock = jest.fn(async (cb: any) => cb({
         findOne: emFindOne,
         createQueryBuilder: jest.fn().mockReturnValue(emQb),
@@ -330,12 +355,17 @@ describe('AuthService', () => {
       await service.refresh({ refresh_token: 't' });
 
       expect(txMock).toHaveBeenCalled();
-      expect(emFindOne).toHaveBeenCalledWith(
-        Session,
+      expect(emFindOne).toHaveBeenNthCalledWith(1, Session,
         expect.objectContaining({ where: { refreshTokenHash: 'hash' }, lock: { mode: 'pessimistic_write' } }),
+      );
+      expect(emFindOne).toHaveBeenNthCalledWith(2, User,
+        expect.objectContaining({ where: { id: 'u1' }, withDeleted: true }),
       );
       expect(revokeExecute).toHaveBeenCalledTimes(1);
       expect(emSave).toHaveBeenCalledTimes(1);
+      expect(emQb.set).toHaveBeenCalledWith(
+        expect.objectContaining({ rotatedToSessionId: 's2' }),
+      );
     });
 
     it('on revoked-session reuse: bulk-revokes active sessions, logs audit with null actor + suspectedReuse, and throws', async () => {
@@ -353,12 +383,18 @@ describe('AuthService', () => {
       const em: any = {
         findOne: jest.fn().mockResolvedValue({
           id: 's1', userId: 'u1', refreshTokenHash: 'hash', revokedAt: new Date(),
+          rotatedToSessionId: null,
+          expiresAt: new Date(Date.now() + 60000),
           user: { id: 'u1', email: 'u@x.com', isActive: true, lockedUntil: null },
         }),
-        getRepository: jest.fn().mockReturnValue({ createQueryBuilder: () => qb }),
+        getRepository: jest.fn().mockReturnValue({
+          createQueryBuilder: () => qb,
+          find: jest.fn().mockResolvedValue([{ accessJti: 'a1' }, { accessJti: 'a2' }]),
+        }),
         save: jest.fn().mockResolvedValue(undefined),
         create: jest.fn().mockReturnValue({ id: 's2' }),
       };
+      mockCacheManager();
       const txMock = jest.fn(async (cb: any) => cb(em));
       (sessionRepo as any).manager = { transaction: txMock };
 
@@ -375,6 +411,34 @@ describe('AuthService', () => {
       );
     });
 
+    it('on already-rotated session: throws without bulk-revoking (no false-positive reuse)', async () => {
+      jest.spyOn(service as any, 'hashRefreshToken').mockReturnValue('hash');
+      mockJwtService.verify.mockReturnValue({
+        sub: 'u1', email: 't@x.com', tokenType: 'refresh', exp: Math.floor(Date.now() / 1000) + 3600,
+      });
+      const reusedExecute = jest.fn().mockResolvedValue({ affected: 99 });
+      const qb: any = {
+        update: jest.fn().mockReturnThis(), set: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(), execute: reusedExecute,
+      };
+      const em: any = {
+        findOne: jest.fn().mockResolvedValue({
+          id: 's1', userId: 'u1', refreshTokenHash: 'hash',
+          revokedAt: new Date(), rotatedToSessionId: 's2',
+          expiresAt: new Date(Date.now() + 60000),
+        }),
+        getRepository: jest.fn().mockReturnValue({ createQueryBuilder: () => qb, find: jest.fn().mockResolvedValue([]) }),
+        save: jest.fn(), create: jest.fn(),
+      };
+      (sessionRepo as any).manager = { transaction: jest.fn(async (cb: any) => cb(em)) };
+
+      await expect(service.refresh({ refresh_token: 't' })).rejects.toThrow(UnauthorizedException);
+      expect(reusedExecute).not.toHaveBeenCalled();
+      expect(auditLogService.log).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'auth.refresh_token_reuse_detected' }),
+      );
+    });
+
     it('audits auth.session.context_mismatch when refresh IP/UA differs from session', async () => {
       mockJwtService.verify.mockReturnValue({
         sub: 'u1',
@@ -382,7 +446,7 @@ describe('AuthService', () => {
         tokenType: 'refresh',
         exp: Math.floor(Date.now() / 1000) + 3600,
       });
-      const lockedSession = {
+      const sessionSemUser = {
         id: 's1',
         userId: 'u1',
         refreshTokenHash: 'hash',
@@ -390,8 +454,11 @@ describe('AuthService', () => {
         expiresAt: new Date(Date.now() + 60000),
         ip: '1.1.1.1',
         userAgent: 'OldAgent',
-        user: { id: 'u1', email: 't@x.com', roleId: 'r', isActive: true, lockedUntil: null },
       };
+      const user = { id: 'u1', email: 't@x.com', roleId: 'r', isActive: true, lockedUntil: null };
+      const emFindOne = jest.fn()
+        .mockResolvedValueOnce(sessionSemUser)
+        .mockResolvedValueOnce(user);
       const emSave = jest.fn().mockResolvedValue(undefined);
       const revokeExecute = jest.fn().mockResolvedValue(undefined);
       const emQb = {
@@ -403,7 +470,7 @@ describe('AuthService', () => {
       const emCreate = jest.fn((_target: any, data: any) => data);
       const txMock = jest.fn(async (cb: any) =>
         cb({
-          findOne: jest.fn().mockResolvedValue(lockedSession),
+          findOne: emFindOne,
           createQueryBuilder: jest.fn().mockReturnValue(emQb),
           save: emSave,
           create: emCreate,
@@ -426,20 +493,50 @@ describe('AuthService', () => {
         }),
       );
     });
+
+    it.each([
+      { label: 'soft-deleted', user: { id: 'u1', email: 't@x.com', isActive: true, deletedAt: new Date(), lockedUntil: null } },
+      { label: 'inactive', user: { id: 'u1', email: 't@x.com', isActive: false, deletedAt: null, lockedUntil: null } },
+    ])(
+      'rejects a $label user with 401 and revokes all sessions (no 500, no token issuance)',
+      async ({ user }) => {
+        jest.spyOn(service as any, 'hashRefreshToken').mockReturnValue('hash');
+        mockJwtService.verify.mockReturnValue({
+          sub: 'u1', email: 't@x.com', tokenType: 'refresh', exp: Math.floor(Date.now() / 1000) + 3600,
+        });
+        const bulkExecute = jest.fn().mockResolvedValue({ affected: 1 });
+        const qb: any = {
+          update: jest.fn().mockReturnThis(), set: jest.fn().mockReturnThis(),
+          where: jest.fn().mockReturnThis(), execute: bulkExecute,
+        };
+        const em: any = {
+          findOne: jest.fn()
+            .mockResolvedValueOnce({
+              id: 's1', userId: 'u1', refreshTokenHash: 'hash', revokedAt: null,
+              expiresAt: new Date(Date.now() + 60000),
+            })
+            .mockResolvedValueOnce(user),
+          getRepository: jest.fn().mockReturnValue({ createQueryBuilder: () => qb, find: jest.fn().mockResolvedValue([]) }),
+          save: jest.fn(), create: jest.fn(),
+        };
+        (sessionRepo as any).manager = { transaction: jest.fn(async (cb: any) => cb(em)) };
+        mockCacheManager();
+
+        await expect(service.refresh({ refresh_token: 't' })).rejects.toThrow(UnauthorizedException);
+        expect(em.findOne).toHaveBeenNthCalledWith(2, User, expect.objectContaining({ withDeleted: true }));
+        expect(bulkExecute).toHaveBeenCalled();
+        expect(auditLogService.log).toHaveBeenCalledWith(
+          expect.objectContaining({ action: 'auth.refresh_denied_invalid_user' }),
+        );
+      },
+    );
   });
 
   describe('logout', () => {
     it('denylists the access jti and revokes the matching session', async () => {
-      const setSpy = jest.fn().mockResolvedValue(undefined);
+      const setSpy = mockCacheManager();
       const executeMock = jest.fn().mockResolvedValue({ affected: 1 });
-      (service as any).cacheManager = { set: setSpy, get: jest.fn().mockResolvedValue(undefined) };
-      sessionRepo.createQueryBuilder = jest.fn(() => ({
-        update: jest.fn(() => ({
-          set: jest.fn(() => ({
-            where: jest.fn(() => ({ execute: executeMock })),
-          })),
-        })),
-      })) as any;
+      sessionRepo.createQueryBuilder = jest.fn(() => buildUpdateQb(executeMock)) as any;
 
       await service.logout('u1', 'access-jti-1', 'refresh-token-1');
 
@@ -448,12 +545,10 @@ describe('AuthService', () => {
     });
 
     it('logoutAll revokes every active session of the user and denylists the jti', async () => {
-      const setSpy = jest.fn().mockResolvedValue(undefined);
+      const setSpy = mockCacheManager();
       const executeMock = jest.fn().mockResolvedValue({ affected: 3 });
-      (service as any).cacheManager = { set: setSpy };
-      sessionRepo.createQueryBuilder = jest.fn(() => ({
-        update: jest.fn(() => ({ set: jest.fn(() => ({ where: jest.fn(() => ({ execute: executeMock })) })) })),
-      })) as any;
+      sessionRepo.find = jest.fn().mockResolvedValue([]) as any;
+      sessionRepo.createQueryBuilder = jest.fn(() => buildUpdateQb(executeMock)) as any;
 
       await service.logoutAll('u1', 'access-jti-1');
 
@@ -462,16 +557,9 @@ describe('AuthService', () => {
     });
 
     it('does not revoke a session that belongs to a different user', async () => {
-      const setSpy = jest.fn().mockResolvedValue(undefined);
+      const setSpy = mockCacheManager();
       const executeMock = jest.fn().mockResolvedValue({ affected: 0 });
-      (service as any).cacheManager = { set: setSpy, get: jest.fn().mockResolvedValue(undefined) };
-      sessionRepo.createQueryBuilder = jest.fn(() => ({
-        update: jest.fn(() => ({
-          set: jest.fn(() => ({
-            where: jest.fn(() => ({ execute: executeMock })),
-          })),
-        })),
-      })) as any;
+      sessionRepo.createQueryBuilder = jest.fn(() => buildUpdateQb(executeMock)) as any;
 
       await service.logout('u1', 'access-jti-1', 'refresh-token-1');
 
@@ -480,21 +568,86 @@ describe('AuthService', () => {
     });
 
     it('does not write a jti:undefined key when accessJti is missing (rolling-deploy safety)', async () => {
-      const setSpy = jest.fn().mockResolvedValue(undefined);
+      const setSpy = mockCacheManager();
       const executeMock = jest.fn().mockResolvedValue({ affected: 1 });
-      (service as any).cacheManager = { set: setSpy, get: jest.fn().mockResolvedValue(undefined) };
-      sessionRepo.createQueryBuilder = jest.fn(() => ({
-        update: jest.fn(() => ({
-          set: jest.fn(() => ({
-            where: jest.fn(() => ({ execute: executeMock })),
-          })),
-        })),
-      })) as any;
+      sessionRepo.createQueryBuilder = jest.fn(() => buildUpdateQb(executeMock)) as any;
 
       await service.logout('u1', undefined as unknown as string, 'refresh-token-1');
 
       expect(setSpy).not.toHaveBeenCalled();
       expect(executeMock).toHaveBeenCalled();
+    });
+  });
+
+  describe('changePassword / logoutAll denylist', () => {
+    it('changePassword denylists every active access JTI of the user, not just the current one', async () => {
+      const setSpy = mockCacheManager();
+      sessionRepo.find = jest.fn().mockResolvedValue([
+        { accessJti: 'a1' }, { accessJti: 'a2' }, { accessJti: null },
+      ]) as any;
+      const executeMock = jest.fn().mockResolvedValue({ affected: 2 });
+      sessionRepo.createQueryBuilder = jest.fn(() => buildUpdateQb(executeMock)) as any;
+      mockUsersService.findByIdWithPassword.mockResolvedValue({
+        id: 'u1', email: 't@x.com', password: 'h', isActive: true,
+      });
+      const bcryptjs = await import('bcryptjs');
+      jest.spyOn(bcryptjs, 'compare').mockResolvedValue(true as never);
+      jest.spyOn(bcryptjs, 'hash').mockResolvedValue('newhash' as never);
+
+      await service.changePassword('u1', 'old', 'NewP@ssw0rd1234');
+
+      expect(setSpy).toHaveBeenCalledWith('jti:a1', 1, expect.any(Number));
+      expect(setSpy).toHaveBeenCalledWith('jti:a2', 1, expect.any(Number));
+    });
+
+    it('logoutAll denylists all active access JTIs of the user (not only the caller JTI)', async () => {
+      const setSpy = mockCacheManager();
+      sessionRepo.find = jest.fn().mockResolvedValue([{ accessJti: 'other-jti' }]) as any;
+      const executeMock = jest.fn().mockResolvedValue({ affected: 1 });
+      sessionRepo.createQueryBuilder = jest.fn(() => buildUpdateQb(executeMock)) as any;
+
+      await service.logoutAll('u1', 'current-jti');
+
+      expect(setSpy).toHaveBeenCalledWith('jti:current-jti', 1, expect.any(Number));
+      expect(setSpy).toHaveBeenCalledWith('jti:other-jti', 1, expect.any(Number));
+    });
+
+    it('revokeAllUserSessions still performs the DB revocation when Redis denylist fails', async () => {
+      mockCacheManager(jest.fn().mockRejectedValue(new Error('redis down')));
+      sessionRepo.find = jest.fn().mockResolvedValue([{ accessJti: 'a1' }]) as any;
+      const executeMock = jest.fn().mockResolvedValue({ affected: 2 });
+      sessionRepo.createQueryBuilder = jest.fn(() => buildUpdateQb(executeMock)) as any;
+
+      const affected = await service.revokeAllUserSessions('u1');
+
+      expect(affected).toBe(2);
+      expect(executeMock).toHaveBeenCalled();
+    });
+  });
+
+  describe('token pair', () => {
+    it('createTokensAndSession persists the accessJti on the new session', async () => {
+      mockUsersService.findOneWithPassword.mockResolvedValue({
+        id: 'u1', email: 't@x.com', password: 'h', name: 'T',
+        roleId: 'r', isActive: true, lockedUntil: null,
+      });
+      mockUsersService.resetFailedLogin.mockResolvedValue(undefined);
+      const bcryptjs = await import('bcryptjs');
+      jest.spyOn(bcryptjs, 'compare').mockResolvedValue(true as never);
+      mockJwtService.sign.mockReturnValue('tok');
+      jest.spyOn(service as any, 'hashRefreshToken').mockReturnValue('hash');
+      const captured: any[] = [];
+      sessionRepo.create = jest.fn((data: any) => data) as any;
+      sessionRepo.save = jest.fn(async (s: any) => { captured.push(s); return s; });
+
+      await service.login(
+        { email: 't@x.com', password: 'p' },
+        '1.1.1.1', 'UA',
+      );
+
+      expect(captured[0].accessJti).toEqual(expect.any(String));
+      expect(captured[0].jti).toEqual(expect.any(String));
+      expect(captured[0].accessJti).not.toBe(captured[0].jti);
     });
   });
 

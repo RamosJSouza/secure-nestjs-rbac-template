@@ -69,20 +69,45 @@ export class AuthService {
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + REFRESH_TOKEN_DAYS);
 
-    return { accessToken, refreshToken, refreshJti, expiresAt };
+    return { accessToken, refreshToken, accessJti, refreshJti, expiresAt };
   }
 
-  private async revokeAllUserSessions(
+  private async denylistActiveAccessJtis(
+    userId: string,
+    repo: Repository<Session>,
+  ): Promise<void> {
+    const sessions = await repo.find({
+      where: { userId, revokedAt: IsNull() },
+      select: ['id', 'accessJti'],
+    });
+    await Promise.all(
+      sessions
+        .filter((s): s is Session & { accessJti: string } => !!s.accessJti)
+        .map((s) => this.cacheManager.set(`jti:${s.accessJti}`, 1, ACCESS_TOKEN_EXPIRES_MS)),
+    );
+  }
+
+  // Exposed for UserAdminService mass-revocation on user deactivation.
+  async revokeAllUserSessions(
     userId: string,
     repo: Repository<Session> = this.sessionRepository,
   ): Promise<number> {
+    try {
+      await this.denylistActiveAccessJtis(userId, repo);
+    } catch (err) {
+      // Best-effort: Redis denylist must not block the critical DB revocation.
+      // Stale access tokens may remain valid until their natural expiry, but
+      // sessions are revoked (refresh tokens stop working immediately).
+      this.logger.warn(
+        `Failed to denylist active access JTIs for user ${userId}: ${getErrorMessage(err)}. Proceeding with DB revocation.`,
+      );
+    }
     const result = await repo
       .createQueryBuilder()
       .update(Session)
       .set({ revokedAt: () => 'NOW()' })
       .where('user_id = :userId AND revoked_at IS NULL', { userId })
       .execute();
-
     return result.affected ?? 0;
   }
 
@@ -115,11 +140,7 @@ export class AuthService {
   ): Promise<{ email: string; access_token: string; refresh_token: string }> {
     const user = await this.usersService.findOneWithPassword(dto.email);
 
-    if (!user) {
-      throw new UnauthorizedException(INVALID_CREDENTIALS_MESSAGE);
-    }
-
-    if (!user.isActive) {
+    if (!user || !user.isActive) {
       throw new UnauthorizedException(INVALID_CREDENTIALS_MESSAGE);
     }
 
@@ -177,7 +198,6 @@ export class AuthService {
     const txResult = await this.sessionRepository.manager.transaction(async (em) => {
       const session = await em.findOne(Session, {
         where: { refreshTokenHash: tokenHash },
-        relations: ['user'],
         lock: { mode: 'pessimistic_write' },
       });
 
@@ -188,6 +208,9 @@ export class AuthService {
       const now = new Date();
 
       if (session.revokedAt) {
+        if (session.rotatedToSessionId) {
+          throw new UnauthorizedException('Refresh token already rotated');
+        }
         const revokedCount = await this.revokeAllUserSessions(
           session.userId,
           em.getRepository(Session),
@@ -211,9 +234,37 @@ export class AuthService {
         throw new UnauthorizedException('Refresh token expired');
       }
 
-      const user = session.user;
-      if (!user.isActive || (user.lockedUntil && user.lockedUntil > now)) {
-        throw new UnauthorizedException(INVALID_CREDENTIALS_MESSAGE);
+      const user = await em.findOne(User, {
+        where: { id: session.userId },
+        withDeleted: true,
+      });
+
+      if (!user || user.deletedAt || !user.isActive || (user.lockedUntil && user.lockedUntil > now)) {
+        let reason: string;
+        if (!user) {
+          reason = 'missing';
+        } else if (user.deletedAt) {
+          reason = 'deleted';
+        } else if (!user.isActive) {
+          reason = 'inactive';
+        } else {
+          reason = 'locked';
+        }
+        const revokedCount = await this.revokeAllUserSessions(
+          session.userId,
+          em.getRepository(Session),
+        );
+        this.logger.warn(
+          `Refresh denied for user ${session.userId} (reason=${reason}). Revoked ${revokedCount} active sessions.`,
+        );
+        return {
+          kind: 'denied' as const,
+          userId: session.userId,
+          sessionId: session.id,
+          revokedCount,
+          ip,
+          userAgent,
+        };
       }
 
       const ipMismatch = ip && session.ip && ip !== session.ip;
@@ -236,17 +287,11 @@ export class AuthService {
             }
           : undefined;
 
-      await em
-        .createQueryBuilder()
-        .update(Session)
-        .set({ revokedAt: () => 'NOW()' })
-        .where('id = :id', { id: session.id })
-        .execute();
-
-      const { accessToken, refreshToken, refreshJti, expiresAt } = this.buildTokenPair(user);
+      const { accessToken, refreshToken, accessJti, refreshJti, expiresAt } = this.buildTokenPair(user);
       const newSession = em.create(Session, {
         userId: user.id,
         refreshTokenHash: this.hashRefreshToken(refreshToken),
+        accessJti,
         ip: ip ?? null,
         userAgent: userAgent ?? null,
         expiresAt,
@@ -254,6 +299,13 @@ export class AuthService {
         rotatedFromSessionId: session.id,
       });
       await em.save(newSession);
+
+      await em
+        .createQueryBuilder()
+        .update(Session)
+        .set({ revokedAt: () => 'NOW()', rotatedToSessionId: newSession.id })
+        .where('id = :id', { id: session.id })
+        .execute();
 
       return {
         kind: 'success' as const,
@@ -281,6 +333,23 @@ export class AuthService {
       throw new UnauthorizedException('Refresh token reuse detected. All sessions have been revoked.');
     }
 
+    if (txResult.kind === 'denied') {
+      this.logAuditFireAndForget({
+        action: 'auth.refresh_denied_invalid_user',
+        entityType: 'Session',
+        entityId: txResult.sessionId,
+        actorUserId: null,
+        metadata: {
+          sessionId: txResult.sessionId,
+          userId: txResult.userId,
+          revokedSessionCount: txResult.revokedCount,
+        },
+        ip: txResult.ip,
+        userAgent: txResult.userAgent,
+      });
+      throw new UnauthorizedException(INVALID_CREDENTIALS_MESSAGE);
+    }
+
     if (txResult.contextMismatchAudit) {
       this.logAuditFireAndForget(txResult.contextMismatchAudit);
     }
@@ -297,11 +366,12 @@ export class AuthService {
     ip?: string,
     userAgent?: string,
   ): Promise<{ email: string; access_token: string; refresh_token: string }> {
-    const { accessToken, refreshToken, refreshJti, expiresAt } = this.buildTokenPair(user);
+    const { accessToken, refreshToken, accessJti, refreshJti, expiresAt } = this.buildTokenPair(user);
 
     const session = this.sessionRepository.create({
       userId: user.id,
       refreshTokenHash: this.hashRefreshToken(refreshToken),
+      accessJti,
       ip: ip ?? null,
       userAgent: userAgent ?? null,
       expiresAt,

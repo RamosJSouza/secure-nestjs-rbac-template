@@ -75,6 +75,13 @@ export const validationSchema = Joi.object({
   PURGE_BATCH_SIZE: Joi.number().integer().min(1).default(1000),
 
   REDIS_PASSWORD: Joi.string().optional().allow(''),
+
+  MULTI_TENANT: Joi.string()
+    .valid('false')
+    .default('false')
+    .messages({
+      'any.only': 'MULTI_TENANT=true is not supported: this template is single-tenant and does not implement PostgreSQL Row-Level Security (RLS). Set MULTI_TENANT=false or unset it.',
+    }),
 }).options({
   allowUnknown: true,
   stripUnknown: true,
