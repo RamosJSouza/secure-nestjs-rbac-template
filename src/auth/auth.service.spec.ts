@@ -664,6 +664,23 @@ describe('AuthService', () => {
       expect(setSpy).toHaveBeenCalledWith('jti:current-jti', 1, expect.any(Number));
       expect(setSpy).toHaveBeenCalledWith('jti:other-jti', 1, expect.any(Number));
     });
+
+    it('revokeAllUserSessions still performs the DB revocation when Redis denylist fails', async () => {
+      (service as any).cacheManager = {
+        set: jest.fn().mockRejectedValue(new Error('redis down')),
+        get: jest.fn().mockResolvedValue(undefined),
+      };
+      sessionRepo.find = jest.fn().mockResolvedValue([{ accessJti: 'a1' }]) as any;
+      const executeMock = jest.fn().mockResolvedValue({ affected: 2 });
+      sessionRepo.createQueryBuilder = jest.fn(() => ({
+        update: jest.fn(() => ({ set: jest.fn(() => ({ where: jest.fn(() => ({ execute: executeMock })) })) })),
+      })) as any;
+
+      const affected = await service.revokeAllUserSessions('u1');
+
+      expect(affected).toBe(2);
+      expect(executeMock).toHaveBeenCalled(); // DB revocation happened despite Redis failure
+    });
   });
 
   describe('token pair', () => {

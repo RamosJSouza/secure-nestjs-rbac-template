@@ -94,14 +94,22 @@ export class AuthService {
     userId: string,
     repo: Repository<Session> = this.sessionRepository,
   ): Promise<number> {
-    await this.denylistActiveAccessJtis(userId, repo);
+    try {
+      await this.denylistActiveAccessJtis(userId, repo);
+    } catch (err) {
+      // Best-effort: Redis denylist must not block the critical DB revocation.
+      // Stale access tokens may remain valid until their natural expiry, but
+      // sessions are revoked (refresh tokens stop working immediately).
+      this.logger.warn(
+        `Failed to denylist active access JTIs for user ${userId}: ${getErrorMessage(err)}. Proceeding with DB revocation.`,
+      );
+    }
     const result = await repo
       .createQueryBuilder()
       .update(Session)
       .set({ revokedAt: () => 'NOW()' })
       .where('user_id = :userId AND revoked_at IS NULL', { userId })
       .execute();
-
     return result.affected ?? 0;
   }
 
