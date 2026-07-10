@@ -310,6 +310,9 @@ describe('AuthService', () => {
         INVALID_CREDENTIALS_MESSAGE,
       );
       expect(lockedExecute).toHaveBeenCalled();
+      expect(auditLogService.log).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'auth.refresh_denied_invalid_user' }),
+      );
     });
 
     it('rotates the session inside a transaction with a pessimistic_write lock', async () => {
@@ -517,6 +520,9 @@ describe('AuthService', () => {
       await expect(service.refresh({ refresh_token: 't' })).rejects.toThrow(UnauthorizedException);
       expect(em.findOne).toHaveBeenNthCalledWith(2, User, expect.objectContaining({ withDeleted: true }));
       expect(bulkExecute).toHaveBeenCalled();
+      expect(auditLogService.log).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'auth.refresh_denied_invalid_user' }),
+      );
     });
 
     it('rejects an inactive user with 401 and revokes all sessions', async () => {
@@ -542,6 +548,9 @@ describe('AuthService', () => {
       await expect(service.refresh({ refresh_token: 't' })).rejects.toThrow(UnauthorizedException);
       expect(em.findOne).toHaveBeenNthCalledWith(2, User, expect.objectContaining({ withDeleted: true }));
       expect(bulkExecute).toHaveBeenCalled();
+      expect(auditLogService.log).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'auth.refresh_denied_invalid_user' }),
+      );
     });
   });
 

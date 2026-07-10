@@ -236,12 +236,24 @@ export class AuthService {
       const user = await em.findOne(User, {
         where: { id: session.userId },
         withDeleted: true,
-        lock: { mode: 'pessimistic_write' },
       });
 
       if (!user || user.deletedAt || !user.isActive || (user.lockedUntil && user.lockedUntil > now)) {
-        await this.revokeAllUserSessions(session.userId, em.getRepository(Session));
-        throw new UnauthorizedException(INVALID_CREDENTIALS_MESSAGE);
+        const revokedCount = await this.revokeAllUserSessions(
+          session.userId,
+          em.getRepository(Session),
+        );
+        this.logger.warn(
+          `Refresh denied for user ${session.userId} (deleted=${!!user?.deletedAt}, inactive=${user ? !user.isActive : 'n/a'}, locked=${!!(user?.lockedUntil && user.lockedUntil > now)}). Revoked ${revokedCount} active sessions.`,
+        );
+        return {
+          kind: 'denied' as const,
+          userId: session.userId,
+          sessionId: session.id,
+          revokedCount,
+          ip,
+          userAgent,
+        };
       }
 
       const ipMismatch = ip && session.ip && ip !== session.ip;
@@ -308,6 +320,23 @@ export class AuthService {
         userAgent: txResult.userAgent,
       });
       throw new UnauthorizedException('Refresh token reuse detected. All sessions have been revoked.');
+    }
+
+    if (txResult.kind === 'denied') {
+      this.logAuditFireAndForget({
+        action: 'auth.refresh_denied_invalid_user',
+        entityType: 'Session',
+        entityId: txResult.sessionId,
+        actorUserId: null,
+        metadata: {
+          sessionId: txResult.sessionId,
+          userId: txResult.userId,
+          revokedSessionCount: txResult.revokedCount,
+        },
+        ip: txResult.ip,
+        userAgent: txResult.userAgent,
+      });
+      throw new UnauthorizedException(INVALID_CREDENTIALS_MESSAGE);
     }
 
     if (txResult.contextMismatchAudit) {
