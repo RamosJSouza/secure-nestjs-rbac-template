@@ -176,6 +176,14 @@ describe('UsersService', () => {
       expect(cacheManager.del).toHaveBeenCalledWith('user:u1');
     });
 
+    it('setActive updates isActive and invalidates the user cache', async () => {
+      mockRepository.update.mockResolvedValue(undefined);
+      cacheManager.del.mockResolvedValue(undefined);
+      await service.setActive('u1', false);
+      expect(mockRepository.update).toHaveBeenCalledWith({ id: 'u1' }, { isActive: false });
+      expect(cacheManager.del).toHaveBeenCalledWith('user:u1');
+    });
+
     it('recordFailedLogin invalidates the user cache', async () => {
       const em = {
         increment: jest.fn().mockResolvedValue(undefined),

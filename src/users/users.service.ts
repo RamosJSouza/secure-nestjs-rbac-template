@@ -114,4 +114,9 @@ export class UsersService {
     );
     await this.invalidateUserCache(userId);
   }
+
+  async setActive(userId: string, active: boolean): Promise<void> {
+    await this.usersRepository.update({ id: userId }, { isActive: active });
+    await this.invalidateUserCache(userId);
+  }
 }
