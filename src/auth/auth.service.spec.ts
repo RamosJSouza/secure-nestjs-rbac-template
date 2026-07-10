@@ -315,7 +315,7 @@ describe('AuthService', () => {
         where: jest.fn().mockReturnThis(),
         execute: revokeExecute,
       };
-      const emCreate = jest.fn((_target: any, data: any) => data);
+      const emCreate = jest.fn((_target: any, data: any) => ({ id: 's2', ...data }));
       const txMock = jest.fn(async (cb: any) => cb({
         findOne: emFindOne,
         createQueryBuilder: jest.fn().mockReturnValue(emQb),
@@ -336,6 +336,9 @@ describe('AuthService', () => {
       );
       expect(revokeExecute).toHaveBeenCalledTimes(1);
       expect(emSave).toHaveBeenCalledTimes(1);
+      expect(emQb.set).toHaveBeenCalledWith(
+        expect.objectContaining({ rotatedToSessionId: 's2' }),
+      );
     });
 
     it('on revoked-session reuse: bulk-revokes active sessions, logs audit with null actor + suspectedReuse, and throws', async () => {
